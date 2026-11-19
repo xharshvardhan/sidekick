@@ -17,7 +17,8 @@ export function App(): ReactNode {
 
   if (route === 'overlay') return <Overlay />
   if (!settings) return <div className="drag h-full" />
-  if (!settings.onboarded)
+  // Setup's "Edit Vertex settings" must reach Settings before onboarding is finished
+  if (!settings.onboarded && route !== 'settings')
     return (
       <>
         <Setup firstRun />

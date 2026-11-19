@@ -79,6 +79,11 @@ export class Segmenter {
     return l
   }
 
+  /** Loudest frame rms over the last `ms` (speech dips between syllables; this does not). */
+  recentPeak(ms = 300): number {
+    return Math.max(0, ...this.recent.slice(-Math.ceil(ms / FRAME_MS)))
+  }
+
   timeOf(sample: number): number {
     return this.anchorAt + (sample * 1000) / SAMPLE_RATE
   }

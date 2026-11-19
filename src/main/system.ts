@@ -48,9 +48,18 @@ async function testVertex(llm: () => Llm, s: Settings): Promise<Permissions['ver
   }
 }
 
-export function openPermissionPane(which: 'microphone' | 'screen'): void {
+/** Ask macOS first (shows its prompt and lists Sidekick in System Settings), then open the pane. */
+export async function openPermissionPane(which: 'microphone' | 'screen'): Promise<void> {
+  if (which === 'microphone') {
+    if (await systemPreferences.askForMediaAccess('microphone')) return
+  } else {
+    // a capture attempt is what registers the app for Screen Recording
+    await desktopCapturer
+      .getSources({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } })
+      .catch(() => [])
+  }
   const pane = which === 'microphone' ? 'Privacy_Microphone' : 'Privacy_ScreenCapture'
-  shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${pane}`)
+  await shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${pane}`)
 }
 
 /** Screenshot of the display under the cursor as base64 JPEG, longest side ≤ 1600 px. */

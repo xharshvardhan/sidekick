@@ -38,7 +38,12 @@ export interface DirectorDeps {
   deck: Deck
   llm(): Llm
   settings(): Settings
-  context(): { summary: string; tail: Utterance[]; audio: PendingAudio[] }
+  context(): {
+    summary: string
+    tail: Utterance[]
+    audio: PendingAudio[]
+    audioOmittedMs?: number
+  }
   activity(): UserActivity
   changed(): void
   toast(kind: 'info' | 'error', text: string): void
@@ -146,6 +151,7 @@ export class Director {
     const { deck } = this.d
     const ctx = this.d.context()
     const s = this.d.settings()
+    const shownCard = deck.current // what the model sees as CURRENT CARD; @extend refers to it
     let made: CueKind = 'none'
     let target = null as { card: Card; section: CardSection } | null
 
@@ -154,7 +160,7 @@ export class Director {
       if (p.kind === 'none' || !p.say) return
       if (!target) {
         const a = this.d.activity()
-        const ext = p.kind === 'extend' ? deck.addSection(askedAt) : null
+        const ext = p.kind === 'extend' ? deck.addSection(askedAt, shownCard?.id) : null
         target = ext ?? deck.addCard(source, askedAt, a, manual)
         made = ext ? 'extend' : 'new'
         gen.shown = true
@@ -177,7 +183,7 @@ export class Director {
           parts: contextParts({
             briefParts: this.briefParts,
             ...ctx,
-            card: deck.current,
+            card: shownCard,
             task,
             image: extra.image
           }),
@@ -228,6 +234,7 @@ export class Director {
     const rec: RunRecord = { kind: 'deeper', startedAt: Date.now() }
     const s = this.d.settings()
     const before = section.detail
+    this.d.deck.deepDetail.add(section.id)
     card.status = 'streaming'
     this.d.changed()
     try {
@@ -262,6 +269,7 @@ export class Director {
       if (gen.ctrl.signal.aborted || isAbort(e)) rec.outcome = 'cancelled'
       else {
         section.detail = before
+        this.d.deck.deepDetail.delete(section.id)
         rec.outcome = 'error'
         rec.error = errorMessage(e)
         this.d.toast('error', `Could not expand the card: ${rec.error}`)

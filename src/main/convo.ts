@@ -56,9 +56,12 @@ export class Conversation {
       })
       if (text.trim()) {
         this.summary = text.trim()
-        // the array may have grown meanwhile; the chunk's last utterance marks the boundary
-        const last = chunk[chunk.length - 1]
-        this.folded = this.utterances.indexOf(last) + 1
+        // Transcripts may have landed inside the chunk's time range meanwhile: advance the boundary only
+        // over utterances that were actually summarized, so a late one stays in the verbatim tail.
+        const done = new Set(chunk)
+        let i = this.folded
+        while (i < this.utterances.length && done.has(this.utterances[i])) i++
+        this.folded = i
       }
       return true
     } finally {

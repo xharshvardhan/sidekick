@@ -1,7 +1,7 @@
 // Implements every `Api` channel on ipcMain.handle.
 import { BrowserWindow, dialog, ipcMain } from 'electron'
-import { copyFileSync, mkdirSync, statSync } from 'fs'
-import { basename, join } from 'path'
+import { copyFileSync, mkdirSync, realpathSync, statSync } from 'fs'
+import { basename, join, sep } from 'path'
 import type { Api, BriefFile, Recap } from '../shared/types'
 import type { Engine } from './engine'
 import { newId } from './director/cards'
@@ -55,15 +55,40 @@ export function recap(ctx: AppCtx, id: string): Promise<Recap> {
   return p
 }
 
-/** Take a screenshot and ask the director about it; failures become an error card. */
-export async function screenCue(engine: Engine): Promise<void> {
+let screenToken = 0
+
+/** Take a screenshot (without Sidekick's windows) and ask the director about it; failures become an error card.
+ *  A capture that finishes after a newer request, or after its session ended, is dropped. */
+export async function screenCue(ctx: AppCtx): Promise<void> {
+  const { engine } = ctx
+  const token = ++screenToken
+  const sessionId = engine.state.sessionId
+  const current = (): boolean =>
+    token === screenToken &&
+    engine.state.sessionId === sessionId &&
+    (engine.state.session === 'live' || engine.state.session === 'paused')
   try {
-    const jpeg = await screenshot()
-    void engine.director.screen(jpeg)
+    const jpeg = await ctx.windows.hiddenFromCapture(screenshot)
+    if (current()) void engine.director.screen(jpeg)
   } catch (e) {
+    if (!current()) return
     engine.deck.addError('screen', (e as Error).message, Date.now())
     engine.changed()
   }
+}
+
+/** Brief files come from the renderer: keep only those inside the app's own files folder. */
+function ownFiles(files: BriefFile[], dir: string): BriefFile[] {
+  const real = (p: string): string | null => {
+    try {
+      return realpathSync(p)
+    } catch {
+      return null
+    }
+  }
+  const root = real(dir)
+  if (!root) return []
+  return files.filter((f) => real(f.path)?.startsWith(root + sep))
 }
 
 export function registerIpc(ctx: AppCtx): void {
@@ -78,7 +103,7 @@ export function registerIpc(ctx: AppCtx): void {
     'live:get': () => engine.state,
     'session:start': (brief) => {
       if (engine.state.session === 'live' || engine.state.session === 'paused') ctx.sessionEnded()
-      const sessionId = engine.start(brief)
+      const sessionId = engine.start({ ...brief, files: ownFiles(brief.files, ctx.filesDir) })
       ctx.sessionStarted()
       return { sessionId }
     },
@@ -139,7 +164,7 @@ export function registerIpc(ctx: AppCtx): void {
       if (needSession()) void engine.director.ask(q)
     },
     'cue:screen': async () => {
-      if (needSession()) await screenCue(engine)
+      if (needSession()) await screenCue(ctx)
     },
     'cue:deeper': () => {
       if (needSession()) void engine.director.deeper()

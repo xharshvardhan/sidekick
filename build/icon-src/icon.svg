@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- macOS grid: 824 px tile, 100 px margin -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#23262d"/>
+      <stop offset="1" stop-color="#121418"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#tile)"/>
+  <rect x="101.5" y="101.5" width="821" height="821" rx="184.5" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="3"/>
+  <!-- speech bubble -->
+  <path d="M332 330 H640 A92 92 0 0 1 732 422 V590 A92 92 0 0 1 640 682 H470 L372 762 V682 H332 A92 92 0 0 1 240 590 V422 A92 92 0 0 1 332 330 Z"
+        fill="none" stroke="#eef0f3" stroke-width="44" stroke-linejoin="round"/>
+  <!-- live dot -->
+  <circle cx="486" cy="506" r="62" fill="#30d158"/>
+</svg>

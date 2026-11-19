@@ -15,13 +15,12 @@
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "postinstall": "install-electron && electron-builder install-app-deps",
-    "build:unpack": "npm run build && electron-builder --dir",
-    "build:mac": "electron-vite build && electron-builder --mac",
     "native": "swiftc -O native/audiocap.swift -o resources/bin/audiocap",
     "test": "vitest run",
     "shots": "electron scripts/shots.mjs",
     "predev": "test -x resources/bin/audiocap || npm run native",
-    "sim": "tsx scripts/sim/run.ts"
+    "sim": "tsx scripts/sim/run.ts",
+    "app": "(test -x resources/bin/audiocap || npm run native) && npm run build && electron-builder --mac dir --arm64 && mkdir -p \"$HOME/Applications\" && rm -rf \"$HOME/Applications/Sidekick.app\" && ditto dist/mac-arm64/Sidekick.app \"$HOME/Applications/Sidekick.app\" && echo \"Installed $HOME/Applications/Sidekick.app\""
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",

@@ -21,6 +21,8 @@ export interface UserActivity {
 export class Deck {
   /** section id → when its question was asked (for coverage) */
   private sectionStart = new Map<string, number>()
+  /** sections whose detail the deep model wrote; a still-streaming cue must not overwrite it */
+  deepDetail = new Set<string>()
 
   constructor(public s: DeckState) {}
 
@@ -67,10 +69,14 @@ export class Deck {
     return { card, section }
   }
 
-  /** Add a follow-up section to the current card. Returns null when there is nothing to extend. */
-  addSection(askedAt: number): { card: Card; section: CardSection } | null {
+  /** Add a follow-up section to the current card, which must still be `expectedId` (the card the model
+   *  was shown). Returns null when there is nothing to extend, so the caller starts a new card. */
+  addSection(
+    askedAt: number,
+    expectedId: string | undefined
+  ): { card: Card; section: CardSection } | null {
     const card = this.current
-    if (!card) return null
+    if (!card || card.id !== expectedId) return null
     if (this.s.pinned && card.id === this.s.activeCardId) return null // pinned cards are frozen
     const section = this.newSection(askedAt)
     card.sections.push(section)
@@ -82,7 +88,7 @@ export class Deck {
   fill(section: CardSection, p: ParsedCue): void {
     section.say = p.say
     if (p.prompt) section.prompt = p.prompt
-    section.detail = p.detail
+    if (!this.deepDetail.has(section.id)) section.detail = p.detail
     section.points = p.points.map((text, i) => {
       const old = section.points[i]
       return { id: old?.id ?? newId('p'), text, covered: old?.covered ?? false }

@@ -8,12 +8,25 @@ import type { LiveState } from '../src/shared/types'
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
+type Reply = string | { text: string; firstChunkMs?: number; chunkMs?: number }
+
 /** A fake model: each call streams the next scripted reply in small chunks. */
-function fakeLlm(replies: string[], { firstChunkMs = 20, chunkMs = 5 } = {}): Llm {
+function fakeLlm(
+  replies: Reply[],
+  defaults: { firstChunkMs?: number; chunkMs?: number } = {}
+): Llm {
   return {
     models: {
       generateContentStream: async ({ config }: { config: { abortSignal?: AbortSignal } }) => {
-        const text = replies.shift() ?? '@none'
+        const r = replies.shift() ?? '@none'
+        const {
+          text,
+          firstChunkMs = 20,
+          chunkMs = 5
+        } = {
+          ...defaults,
+          ...(typeof r === 'string' ? { text: r } : r)
+        }
         return (async function* () {
           await sleep(firstChunkMs)
           for (let i = 0; i < text.length; i += 8) {
@@ -28,7 +41,7 @@ function fakeLlm(replies: string[], { firstChunkMs = 20, chunkMs = 5 } = {}): Ll
 }
 
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
-function setup(replies: string[], opts?: { firstChunkMs?: number }) {
+function setup(replies: Reply[], opts?: { firstChunkMs?: number }) {
   const state: LiveState = { ...idleState(), session: 'live' }
   const deck = new Deck(state)
   const runs: RunRecord[] = []
@@ -199,5 +212,55 @@ describe('card policy (mocked model)', () => {
     const pts = t.state.cards[0].sections[0].points
     expect(pts[0].covered).toBe(true)
     expect(pts[1].covered).toBe(false)
+  })
+
+  it('a stale @extend (the card it saw is no longer current) starts a new card instead', async () => {
+    const t = setup([NEW('A.'), { text: EXT('Follow-up on A.'), firstChunkMs: 200 }, NEW('B.')])
+    await t.auto()
+    const now = Date.now()
+    t.director.onThemEnd(now - 3000, now) // the model is shown card A
+    await sleep(20)
+    await t.director.ask('') // card B becomes active before the auto answer streams
+    while (t.runs.length < 3) await sleep(10)
+    const [a, b] = t.state.cards
+    expect(a.sections.map((x) => x.say)).toEqual(['A.'])
+    expect(b.sections.map((x) => x.say)).toEqual(['B.'])
+    expect(t.state.cards).toHaveLength(3)
+  })
+
+  it('Deeper detail is not overwritten by the cue that is still streaming', async () => {
+    const t = setup([
+      { text: NEW('A long answer that keeps streaming for a while.'), chunkMs: 40 },
+      'Deep detail.'
+    ])
+    const now = Date.now()
+    t.director.onThemEnd(now - 3000, now)
+    while (!t.state.cards.length) await sleep(5)
+    await t.director.deeper()
+    while (t.runs.length < 2) await sleep(10)
+    const sec = t.state.cards[0].sections[0]
+    expect(sec.detail).toBe('Deep detail.')
+    expect(sec.points).toHaveLength(2) // the cue still finished its points
+  })
+
+  it('pinned: an auto card queues, a manual ask replaces the pinned card', async () => {
+    const t = setup([NEW('Pinned.'), NEW('Auto.'), NEW('Asked.')])
+    await t.auto()
+    const pinned = t.state.cards[0]
+    pinned.createdAt -= 10_000
+    t.deck.pin(true)
+    await t.auto()
+    expect(t.state.activeCardId).toBe(pinned.id)
+    expect(t.state.queuedCardId).toBe(t.state.cards[1].id)
+    await t.director.ask('help')
+    expect(t.state.activeCardId).toBe(t.state.cards[2].id)
+  })
+
+  it('the first card shows at once even while the user is speaking', async () => {
+    const t = setup([NEW('First.')])
+    t.setActivity({ youSpeaking: true })
+    await t.auto()
+    expect(t.state.activeCardId).toBe(t.state.cards[0].id)
+    expect(t.state.queuedCardId).toBeNull()
   })
 })

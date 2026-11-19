@@ -150,7 +150,7 @@ export function Setup({ firstRun }: { firstRun: boolean }): ReactNode {
           {allOk ? 'All checks pass.' : 'Finish unlocks when all three checks pass.'}
         </span>
         {firstRun && (
-          <Button color="secondary" variant="ghost" onClick={finish}>
+          <Button color="secondary" variant="outline" onClick={finish}>
             Skip for now
           </Button>
         )}

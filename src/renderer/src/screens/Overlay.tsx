@@ -1,5 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { AppWindow, MessageCircleQuestion, Mic, Pin, TriangleAlert, Volume2 } from 'lucide-react'
+import {
+  AppWindow,
+  CircleAlert,
+  MessageCircleQuestion,
+  Mic,
+  Pin,
+  TriangleAlert,
+  Volume2
+} from 'lucide-react'
+import { Button } from '@openai/apps-sdk-ui/components/Button'
 import { ShimmerText } from '@openai/apps-sdk-ui/components/ShimmerText'
 import type { LiveState } from '../../../shared/types'
 import { demoBackdrop } from '../bridge'
@@ -14,6 +23,8 @@ export function Overlay(): ReactNode {
   const overlay = useStore((s) => s.settings?.overlay)
   const askAcc = useStore((s) => s.settings?.hotkeys.find((h) => h.id === 'ask')?.accelerator)
   const [asking, setAsking] = useState(false)
+  // errors reach this window as toasts (kept ~8 s by the store); the overlay shows the latest one inline
+  const error = useStore((s) => s.toasts.findLast((t) => t.kind === 'error'))
 
   useEffect(() => {
     document.documentElement.classList.add('overlay')
@@ -50,6 +61,16 @@ export function Overlay(): ReactNode {
               <div className="flex h-6 shrink-0 items-center gap-1.5 border-b border-subtle px-3.5 text-xs text-warning">
                 <TriangleAlert className="size-3.5 shrink-0" />
                 <span className="truncate">{live.audio.message}</span>
+              </div>
+            )}
+            {error && !live.audio.message?.includes(error.text) && (
+              <div
+                role="alert"
+                title={error.text}
+                className="flex h-6 shrink-0 items-center gap-1.5 border-b border-subtle px-3.5 text-xs text-danger"
+              >
+                <CircleAlert className="size-3.5 shrink-0" />
+                <span className="selectable truncate">{error.text}</span>
               </div>
             )}
             <Body live={live} scale={scale} />
@@ -170,9 +191,15 @@ function Body({ live, scale }: { live: LiveState; scale: number }): ReactNode {
       {active ? (
         <CardView key={active.id} card={active} scale={scale} />
       ) : !on ? (
-        <p className="text-sm text-secondary">
-          Start a session in Sidekick and cards will show up here.
-        </p>
+        <div className="flex flex-col items-start gap-3">
+          <p className="text-sm text-secondary">
+            Start a session in Sidekick and cards will show up here.
+          </p>
+          <Button color="primary" size="sm" onClick={() => call('window:setMode', 'app')}>
+            <AppWindow />
+            Open Sidekick
+          </Button>
+        </div>
       ) : (
         <div style={{ fontSize: `${14 * scale}px` }}>
           <div className="text-[0.75em] font-semibold tracking-wider text-tertiary uppercase">
@@ -183,7 +210,7 @@ function Body({ live, scale }: { live: LiveState; scale: number }): ReactNode {
           </div>
           <p className="selectable mt-1 truncate text-default">
             {lastThem ? (
-              lastThem.text
+              caption(lastThem.text)
             ) : (
               <span className="text-secondary">
                 Nothing yet. Cards appear when they ask you something.
@@ -202,6 +229,13 @@ function Body({ live, scale }: { live: LiveState; scale: number }): ReactNode {
       )}
     </div>
   )
+}
+
+/** A live caption reads like subtitles: keep the end of a long utterance, not its start. */
+function caption(text: string, max = 80): string {
+  if (text.length <= max) return text
+  const tail = text.slice(-max)
+  return `…${tail.slice(tail.indexOf(' ') + 1)}`
 }
 
 function Queued({ live }: { live: LiveState }): ReactNode {

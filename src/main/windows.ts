@@ -2,9 +2,8 @@
 import { BrowserWindow, screen, shell } from 'electron'
 import { join } from 'path'
 import type { Events, WindowMode } from '../shared/types'
+import { overlayBounds } from './placement'
 import type { SettingsStore } from './settings'
-
-const OVERLAY = { width: 560, height: 340 }
 
 export class Windows {
   app: BrowserWindow | null = null
@@ -75,13 +74,11 @@ export class Windows {
   }
 
   createOverlay(): BrowserWindow {
-    const o = this.settings.value.overlay
-    const wa = screen.getPrimaryDisplay().workArea
-    const bounds = o.bounds ?? {
-      ...OVERLAY,
-      x: Math.round(wa.x + (wa.width - OVERLAY.width) / 2),
-      y: wa.y + 12
-    }
+    const bounds = overlayBounds(
+      this.settings.value.overlay.bounds,
+      screen.getAllDisplays().map((d) => d.bounds),
+      screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
+    )
     const win = new BrowserWindow({
       ...bounds,
       type: 'panel', // NSPanel: floats without taking focus from the call app
@@ -132,6 +129,19 @@ export class Windows {
     const o = this.settings.value.overlay
     win.setContentProtection(o.hideFromScreenShare)
     win.setOpacity(Math.max(0.6, Math.min(1, o.opacity)))
+  }
+
+  /** Run a screen capture with Sidekick's own windows left out of it, without hiding them (no flicker). */
+  async hiddenFromCapture<T>(capture: () => Promise<T>): Promise<T> {
+    const wins = [this.app, this.overlay].filter((w): w is BrowserWindow => !!w && !w.isDestroyed())
+    for (const w of wins) w.setContentProtection(true)
+    try {
+      await new Promise((r) => setTimeout(r, 120)) // let the window server apply it
+      return await capture()
+    } finally {
+      this.app?.isDestroyed() === false && this.app.setContentProtection(false)
+      this.applyOverlaySettings()
+    }
   }
 
   showOverlay(on: boolean): void {

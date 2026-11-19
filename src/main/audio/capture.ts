@@ -19,7 +19,7 @@ export interface Capture {
 // ScreenCaptureKit lists no displays when Screen Recording is not granted, so "no display" means denied too
 const DENIED = /permission|tcc|not authori[sz]ed|declined|denied|no display/i
 
-/** Spawn `audiocap <args>`; restart it with backoff whenever it exits until `stop()`. */
+/** Spawn `audiocap <args>`; restart it with backoff whenever it exits until `stop()`, unless it exits for lack of permission. */
 export function spawnCapture(bin: string, args: string[], h: CaptureHandlers): Capture {
   let child: ChildProcess | null = null
   let stopped = false
@@ -39,7 +39,10 @@ export function spawnCapture(bin: string, args: string[], h: CaptureHandlers): C
       return schedule()
     }
     child = proc
+    // output from a retired helper (stopped, or replaced by a restart) must not reach the channel
+    const live = (): boolean => !stopped && child === proc
     proc.stdout!.on('data', (b: Buffer) => {
+      if (!live()) return
       if (!readyAt) {
         readyAt = Date.now()
         h.onReady(readyAt)
@@ -58,6 +61,7 @@ export function spawnCapture(bin: string, args: string[], h: CaptureHandlers): C
     })
     proc.stderr!.setEncoding('utf8')
     proc.stderr!.on('data', (text: string) => {
+      if (!live()) return
       for (const line of text
         .split('\n')
         .map((l) => l.trim())
@@ -76,18 +80,18 @@ export function spawnCapture(bin: string, args: string[], h: CaptureHandlers): C
         }
       }
     })
-    proc.on('error', (e) => {
-      lastError = e.message
-      h.onStatus('error', `audio helper failed: ${e.message}`)
-    })
-    proc.on('exit', (code, signal) => {
-      if (child === proc) child = null
-      if (stopped) return
+    // 'exit' or 'error' (a failed spawn emits only 'error'): handle whichever comes first, once
+    const ended = (why: string): void => {
+      if (!live()) return
+      child = null
       if (readyAt && Date.now() - readyAt > 10_000) backoff = 1000 // it ran fine for a while
-      const why = lastError || `exited (${signal ?? code})`
-      h.onStatus(DENIED.test(why) ? 'denied' : 'error', `audio helper ${why}; restarting`)
+      // a missing permission does not fix itself: stop here; the engine restarts once it is granted
+      if (DENIED.test(why)) return h.onStatus('denied', why)
+      h.onStatus('error', `audio helper ${why}; restarting`)
       schedule()
-    })
+    }
+    proc.on('error', (e) => ended(lastError || `failed: ${e.message}`))
+    proc.on('exit', (code, signal) => ended(lastError || `exited (${signal ?? code})`))
   }
 
   const schedule = (): void => {

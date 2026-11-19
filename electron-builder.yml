@@ -1,47 +1,33 @@
-appId: com.electron.app
-productName: app
+# Local macOS build of Sidekick.app (personal tool: unsigned by a developer ID, ad-hoc signed, not notarized).
+appId: app.sidekick.desktop
+productName: Sidekick
 directories:
   buildResources: build
+  output: dist
 files:
   - '!**/.vscode/*'
   - '!src/*'
+  - '!{scripts,tests,shots,native,build}/**'
+  - '!resources/bin/**'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
-  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md,SPEC.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
-  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
-asarUnpack:
-  - resources/**
-win:
-  executableName: app
-nsis:
-  artifactName: ${name}-${version}-setup.${ext}
-  shortcutName: ${productName}
-  uninstallDisplayName: ${productName}
-  createDesktopShortcut: always
-mac:
-  entitlementsInherit: build/entitlements.mac.plist
-  extendInfo:
-    - NSCameraUsageDescription: Application requests access to the device's camera.
-    - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
-    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
-    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
-  notarize: false
-dmg:
-  artifactName: ${name}-${version}.${ext}
-linux:
-  target:
-    - AppImage
-    - snap
-    - deb
-  maintainer: electronjs.org
-  category: Utility
-appImage:
-  artifactName: ${name}-${version}.${ext}
-npmRebuild: false
-publish:
-  provider: generic
-  url: https://example.com/auto-updates
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json,vitest.config.mts}'
 # the audio helper ships next to the app resources (process.resourcesPath/bin/audiocap)
 extraResources:
   - from: resources/bin
     to: bin
+mac:
+  target:
+    - target: dir
+      arch: [arm64]
+  icon: build/icon.icns
+  category: public.app-category.productivity
+  hardenedRuntime: false
+  identity: '-' # ad-hoc signature so it launches locally
+  notarize: false
+  extendInfo:
+    NSMicrophoneUsageDescription: Sidekick transcribes what you say on a call.
+    NSAudioCaptureUsageDescription: Sidekick listens to the other side of your call to suggest what to say.
+    NSScreenCaptureUsageDescription: Sidekick records system audio from calls and, when you ask, reads your screen.
+npmRebuild: false

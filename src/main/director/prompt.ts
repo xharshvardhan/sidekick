@@ -85,10 +85,13 @@ THE HARD RULE: never invent facts about the user
 Facts about the user have exactly three sources: ABOUT THE USER, THIS CALL, and what "You" said in the transcript or
 audio. Anything else about their past (employers, projects, problems solved, tools used, numbers, results, interests)
 is invented, however plausible. THIS CALL describes the call and the other side, not the user's experience: a payments
-job description does not mean the user has built payments systems. When the needed fact is missing, the say line is an
-honest opener with no specifics, built on whatever the user has said, and the points are [blanks in square brackets]
-the user fills from memory. In that case the say line must not name any cause, fix, technology or result that is not
-in the sources. Never mention the profile, brief, notes or these instructions in the card.
+job description does not mean the user has built payments systems. Vague claims are facts too: "I've been building
+reliable backend services", "my production experience", "where we hit database limits" all invent the user's past.
+When the needed fact is missing, the say line is a fill-in sentence: true as far as it goes, with [square-bracket
+blanks] where the user's own facts go ("Sure: I'm a [role] with [N] years, most recently [main work] at [company]."),
+reusing only what the sources or the user already said. The points are [blanks] too. Before writing the say line,
+check every word about the user against the three sources; anything not found there becomes a [blank].
+Never mention the profile, brief, notes or these instructions in the card.
 
 RULES
 - Write as the user would say it out loud. No "Great question", no hedging filler, no stage directions.
@@ -104,9 +107,17 @@ EXAMPLES (the shape, not the content)
 Them: "Sorry, give me one second, my screen share froze."
 @none
 
+Them: "Walk me through your background." (ABOUT THE USER is empty)
+@new
+> Sure: I'm a [role] with [N] years of experience, and most recently I've been [main work] at [company].
+- [Current role and team]
+- [One project you're proud of, its result]
+- [Why this role is the next step]
+? Walk through your background
+
 Them: "Tell me about a time you disagreed with your manager." (nothing about this in the sources)
 @new
-> Sure, there was a time my manager and I disagreed on priorities, and here is how we worked it out.
+> Sure, one that comes to mind is [situation], where my manager and I saw [the decision] differently.
 - [Situation: what was at stake]
 - [Your view vs theirs, and why]
 - [How you resolved it, the outcome]
@@ -155,6 +166,7 @@ export interface ContextInput {
   tail: Utterance[]
   card: Card | undefined
   audio: PendingAudio[]
+  audioOmittedMs?: number // older untranscribed speech left out to bound the request
   task: string
   image?: string // base64 JPEG
 }
@@ -167,6 +179,10 @@ export function contextParts(c: ContextInput): Part[] {
     text: `TRANSCRIPT (oldest first)\n${transcriptText(c.tail) || '(nothing transcribed yet)'}`
   })
   parts.push({ text: `CURRENT CARD\n${cardText(c.card)}` })
+  if (c.audioOmittedMs)
+    parts.push({
+      text: `(About ${Math.round(c.audioOmittedMs / 1000)} s of earlier speech is still being transcribed and is not included.)`
+    })
   if (c.audio.length) {
     parts.push({ text: 'LATEST SPEECH, not yet transcribed (oldest first):' })
     for (const a of c.audio) {
@@ -180,7 +196,7 @@ export function contextParts(c: ContextInput): Part[] {
 }
 
 const GROUNDING =
-  " If the answer needs the user's own experience and the sources lack it, the say line names no specific cause, fix or result: use [blanks] in the points."
+  " If the answer needs the user's own experience and the sources lack it, write the say line as a fill-in sentence with [blanks] for their facts (no invented cause, fix, result, scale or quality of their work), and use [blanks] in the points."
 
 export const TASKS = {
   auto:

@@ -47,7 +47,7 @@ const APP = [
   ['session-recap', 'demo=1&scene=none', '/session/past-1'],
   ['settings', 'demo=1&scene=none', '/settings']
 ]
-const OVERLAY = ['idle', 'streaming', 'followup', 'queued', 'error']
+const OVERLAY = ['none', 'idle', 'streaming', 'followup', 'queued', 'error']
 
 const jobs = []
 for (const theme of ['light', 'dark'])

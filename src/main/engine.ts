@@ -4,12 +4,13 @@ import { join } from 'path'
 import type { Brief, LiveState, Session, Settings, Speaker, Utterance } from '../shared/types'
 import { fakeCapture, spawnCapture, type Capture, type CaptureStatus } from './audio/capture'
 import { Segmenter, type Segment } from './audio/segmenter'
-import { isEcho } from './audio/echo'
+import { isEcho, isEchoFrame } from './audio/echo'
 import { pcmToWav, samplesToMs } from './audio/wav'
 import { Conversation } from './convo'
 import { Deck, newId, type UserActivity } from './director/cards'
 import { Director, type RunRecord } from './director/director'
 import { briefParts } from './director/brief'
+import type { PendingAudio } from './director/prompt'
 import { errorMessage, type Llm } from './llm'
 import { transcribe } from './stt'
 
@@ -25,21 +26,32 @@ export interface EngineDeps {
   log(msg: string): void
   onRun?(r: RunRecord): void
   onUtterance?(u: Utterance): void
-  /** macOS mic permission. A denied mic delivers zeros, which must not look like a wedged AEC unit. */
-  micGranted?(): boolean
+  /** macOS permission state (mic: Microphone, system: Screen Recording). A denied mic delivers zeros,
+   *  which must not look like a wedged AEC unit; a denied channel restarts once this turns true. */
+  granted?(key: AudioKey): boolean
 }
+
+type AudioKey = 'mic' | 'system'
 
 interface Channel {
   seg: Segmenter
   cap: Capture | null
   inflight: number
-  queue: { id: string; seg: Segment }[]
-  error: string
+  queue: { id: string; seg: Segment; sessionId: string | null }[]
+  error: string // shown in the UI; empty when healthy
+  deniedAt: number // last time the helper reported a missing permission; 0 once it works again
+  grantedWhenDenied: boolean // macOS already said "granted" when the helper was denied
 }
 
 const STT_PARALLEL = 3
 const LOUD_RMS = 300 // "the system channel has audio"
 const ZERO_FALLBACK_MS = 3000
+const PERMISSION_RECHECK_MS = 3000
+const MAX_PENDING_AUDIO_MS = 60_000 // untranscribed speech attached to a cue
+const DENIED_MESSAGE: Record<AudioKey, string> = {
+  mic: "Sidekick can't hear you yet. Allow Microphone in Setup.",
+  system: "Sidekick can't hear the other side yet. Allow Screen & System Audio Recording in Setup."
+}
 
 export function idleState(autoCue = true): LiveState {
   return {
@@ -72,10 +84,13 @@ export class Engine {
   private testing = false
   private audioOn = false
   private noAecFallback = false
+  private ending = false
+  private endedAt = 0
   private micZeroMs = 0
   private sysLoudAt = 0
   private timers: NodeJS.Timeout[] = []
   private levelsTimer: NodeJS.Timeout | null = null
+  private permTimer: NodeJS.Timeout | null = null
   private fakeStart: number | null = null
   private emitTimer: NodeJS.Timeout | null = null
   private lastEmit = 0
@@ -106,6 +121,8 @@ export class Engine {
     this.deck = new Deck(this.state)
     this.director = this.makeDirector()
     this.pending.clear()
+    this.ch.you.queue = []
+    this.ch.them.queue = []
     this.lastYouEndAt = 0
     this.brief = brief
     const { parts, skipped } = briefParts(brief.files)
@@ -118,11 +135,26 @@ export class Engine {
     return id
   }
 
+  /** Ends the session. Speech still in progress is closed and sent for transcription; see `settled`. */
   end(): void {
     if (this.state.session === 'idle' || this.state.session === 'ended') return
+    if (this.state.session === 'live') {
+      this.director.cancelAll()
+      this.ending = true // flushed `them` speech is transcribed but does not trigger a cue
+      this.ch.you.seg.flush()
+      this.ch.them.seg.flush()
+      this.ending = false
+    }
     this.stopSessionWork()
     this.state.session = 'ended'
+    this.endedAt = Date.now()
     this.changed()
+  }
+
+  /** Resolves once every transcript of the session has landed, or after `maxMs`. */
+  async settled(maxMs = 5000): Promise<void> {
+    const until = Date.now() + maxMs
+    while (this.pending.size && Date.now() < until) await new Promise((r) => setTimeout(r, 100))
   }
 
   pause(paused: boolean): void {
@@ -154,7 +186,7 @@ export class Engine {
       title: st.title,
       preset: this.brief.preset,
       startedAt: st.startedAt,
-      endedAt: st.session === 'ended' ? Date.now() : undefined,
+      endedAt: st.session === 'ended' ? this.endedAt : undefined,
       utteranceCount: st.utterances.length,
       cardCount: st.cards.length,
       brief: this.brief,
@@ -174,7 +206,7 @@ export class Engine {
     if (prev.echoCancellation !== next.echoCancellation && this.audioOn) {
       this.noAecFallback = false
       this.state.audio.echoCancellation = next.echoCancellation
-      this.restartMic()
+      this.restartChannel('you')
     }
   }
 
@@ -221,16 +253,30 @@ export class Engine {
       context: () => ({
         summary: this.convo.summary,
         tail: this.convo.tail(),
-        audio: [...this.pending.values()]
-          .sort((a, b) => a.seg.startedAt - b.seg.startedAt)
-          .slice(-8)
-          .map((p) => ({ speaker: p.speaker, wav: pcmToWav(p.seg.pcm) }))
+        ...this.pendingAudio()
       }),
       activity: () => this.activity(),
       changed: () => this.changed(),
       toast: this.d.toast,
       onRun: this.d.onRun
     })
+  }
+
+  /** All untranscribed speech, oldest first, capped to the newest 60 s; the rest is reported as omitted. */
+  private pendingAudio(): { audio: PendingAudio[]; audioOmittedMs: number } {
+    const all = [...this.pending.values()].sort((a, b) => a.seg.startedAt - b.seg.startedAt)
+    const audio: PendingAudio[] = []
+    let total = 0
+    let omitted = 0
+    for (let i = all.length - 1; i >= 0; i--) {
+      const len = samplesToMs(all[i].seg.pcm.length)
+      if (total + len > MAX_PENDING_AUDIO_MS) omitted += len
+      else {
+        total += len
+        audio.unshift({ speaker: all[i].speaker, wav: pcmToWav(all[i].seg.pcm) })
+      }
+    }
+    return { audio, audioOmittedMs: omitted }
   }
 
   // ---------- audio ----------
@@ -244,16 +290,21 @@ export class Engine {
       onStart: () => this.onSpeechStart(speaker),
       onEnd: (s) => this.onSpeechEnd(speaker, s),
       onDrop: () => this.setPartial(speaker, false),
-      // energy gate: without AEC, quiet mic "speech" while the speakers are loud is echo
+      // energy gate: mic "speech" that is really the speakers' echo (residual echo with AEC on)
       suppress:
         speaker === 'you'
-          ? (r) =>
-              this.noAec &&
-              this.ch.them.seg.lastRms > LOUD_RMS &&
-              r < 0.6 * this.ch.them.seg.lastRms
+          ? (r) => isEchoFrame(r, this.ch.them.seg.recentPeak(), !this.noAec)
           : undefined
     })
-    return { seg, cap: null, inflight: 0, queue: [], error: '' }
+    return {
+      seg,
+      cap: null,
+      inflight: 0,
+      queue: [],
+      error: '',
+      deniedAt: 0,
+      grantedWhenDenied: false
+    }
   }
 
   private startAudio(): void {
@@ -266,6 +317,23 @@ export class Engine {
       this.state.levels = levels
       this.d.emitLevels(levels)
     }, 125)
+    if (!this.d.fakeDir && this.d.granted)
+      this.permTimer = setInterval(() => this.recheckDenied(), PERMISSION_RECHECK_MS)
+  }
+
+  /** A denied channel stays stopped; start it again once macOS reports the permission granted. */
+  private recheckDenied(): void {
+    for (const sp of ['you', 'them'] as Speaker[]) {
+      const key = sp === 'you' ? 'mic' : 'system'
+      if (this.state.audio[key] !== 'denied') continue
+      const c = this.ch[sp]
+      const granted = this.d.granted!(key)
+      // restart when it flips to granted; if macOS said granted all along, retry only every 30 s
+      if (granted && (!c.grantedWhenDenied || Date.now() - c.deniedAt > 30_000)) {
+        this.d.log(`audio ${key}: permission granted, starting capture`)
+        this.restartChannel(sp)
+      } else c.grantedWhenDenied = granted
+    }
   }
 
   private stopAudio(): void {
@@ -275,25 +343,34 @@ export class Engine {
       this.ch[sp].cap?.stop()
       this.ch[sp].cap = null
       this.ch[sp].seg.anchor(0)
+      this.ch[sp].error = ''
+      this.ch[sp].deniedAt = 0
     }
     if (this.levelsTimer) clearInterval(this.levelsTimer)
-    this.levelsTimer = null
+    if (this.permTimer) clearInterval(this.permTimer)
+    this.levelsTimer = this.permTimer = null
     this.fakeStart = null
     this.state.audio = { ...this.state.audio, mic: 'off', system: 'off' }
+    this.updateAudioMessage()
     this.d.emitLevels({ you: 0, them: 0 })
     this.changed()
   }
 
-  private restartMic(): void {
-    this.ch.you.cap?.stop()
-    this.startChannel('you')
+  private restartChannel(speaker: Speaker): void {
+    this.ch[speaker].cap?.stop()
+    this.ch[speaker].seg.anchor(0)
+    this.setPartial(speaker, false)
+    this.startChannel(speaker)
   }
 
   private startChannel(speaker: Speaker): void {
     const c = this.ch[speaker]
     const key = speaker === 'you' ? 'mic' : 'system'
     const handlers = {
-      onReady: (at: number) => c.seg.anchor(at),
+      onReady: (at: number) => {
+        c.seg.anchor(at) // drops any open segment, so the speaking flag goes too
+        this.setPartial(speaker, false)
+      },
       onData: (pcm: Int16Array) => this.onData(speaker, pcm),
       onStatus: (status: CaptureStatus, message?: string) => {
         const was = this.state.audio[key]
@@ -301,21 +378,27 @@ export class Engine {
           speaker === 'you' &&
           status === 'ok' &&
           !this.d.fakeDir &&
-          this.d.micGranted?.() === false
+          this.d.granted?.('mic') === false
         )
           status = 'denied'
         this.state.audio[key] = status
-        c.error = status === 'ok' || status === 'starting' ? '' : (message ?? 'permission denied')
+        c.error =
+          status === 'denied'
+            ? DENIED_MESSAGE[key]
+            : status === 'error'
+              ? `${speaker === 'you' ? 'Mic' : 'Call audio'}: ${message}`
+              : ''
+        // one toast per denial, not one per retry
+        const tell = status === 'error' ? was !== status : status === 'denied' && !c.deniedAt
+        if (status === 'ok') c.deniedAt = 0
+        if (status === 'denied' && was !== 'denied') {
+          c.deniedAt = Date.now()
+          c.grantedWhenDenied = this.d.granted?.(key) ?? false
+        }
         this.updateAudioMessage()
-        if ((status === 'error' || status === 'denied') && was !== status) {
-          const what = speaker === 'you' ? 'Microphone' : 'Call audio'
-          this.d.toast(
-            'error',
-            status === 'denied'
-              ? `${what}: permission denied. Open Setup to fix it.`
-              : `${what}: ${message}`
-          )
-          this.d.log(`audio ${key} ${status}: ${message}`)
+        if (tell) {
+          this.d.toast('error', c.error)
+          this.d.log(`audio ${key} ${status}: ${message ?? ''}`)
         }
         this.changed()
       }
@@ -335,8 +418,8 @@ export class Engine {
       this.noAecFallback
         ? 'Echo cancellation stopped responding, so the mic runs without it. Use headphones to avoid echo.'
         : '',
-      this.ch.you.error && `Mic: ${this.ch.you.error}`,
-      this.ch.them.error && `Call audio: ${this.ch.them.error}`
+      this.ch.you.error,
+      this.ch.them.error
     ].filter(Boolean)
     this.state.audio.message = parts.length ? parts.join(' · ') : undefined
     this.state.audio.echoCancellation = !this.noAec
@@ -350,7 +433,7 @@ export class Engine {
       return
     }
     // AEC fallback: a wedged voice-processing unit outputs exact zeros while the call has audio.
-    if (this.d.fakeDir || this.noAec || this.d.micGranted?.() === false) return
+    if (this.d.fakeDir || this.noAec || this.d.granted?.('mic') === false) return
     if (pcm.every((v) => v === 0)) this.micZeroMs += samplesToMs(pcm.length)
     else this.micZeroMs = 0
     if (this.micZeroMs >= ZERO_FALLBACK_MS && Date.now() - this.sysLoudAt < ZERO_FALLBACK_MS) {
@@ -358,7 +441,7 @@ export class Engine {
       this.noAecFallback = true
       this.d.log('mic silent with AEC while call audio plays: restarting mic without AEC')
       this.updateAudioMessage()
-      this.restartMic()
+      this.restartChannel('you')
       this.changed()
     }
   }
@@ -383,9 +466,9 @@ export class Engine {
     const id = newId('u')
     this.pending.set(id, { speaker, seg })
     const c = this.ch[speaker]
-    c.queue.push({ id, seg })
+    c.queue.push({ id, seg, sessionId: this.state.sessionId })
     this.pumpStt(speaker)
-    if (speaker === 'them') this.director.onThemEnd(seg.startedAt, seg.endedAt)
+    if (speaker === 'them' && !this.ending) this.director.onThemEnd(seg.startedAt, seg.endedAt)
   }
 
   // ---------- transcription ----------
@@ -394,8 +477,9 @@ export class Engine {
     const c = this.ch[speaker]
     while (c.inflight < STT_PARALLEL && c.queue.length) {
       const job = c.queue.shift()!
+      const { sessionId } = job
+      if (sessionId !== this.state.sessionId) continue // queued in an earlier session
       c.inflight++
-      const sessionId = this.state.sessionId
       const s = this.d.settings()
       transcribe(this.d.llm(), s.models.stt, job.seg.pcm, s.language)
         .then((text) => {
@@ -426,13 +510,13 @@ export class Engine {
   }
 
   private addUtterance(u: Utterance): void {
-    const echoGuard = this.noAec
-    if (echoGuard && u.speaker === 'you' && isEcho(u, this.state.utterances.slice(-10))) {
+    // runs with AEC on too: residual echo can still slip through; it needs time overlap and ≥ 60% shared words
+    if (u.speaker === 'you' && isEcho(u, this.state.utterances.slice(-10))) {
       this.d.log(`echo dropped: ${u.text}`)
       return
     }
     this.convo.add(u)
-    if (echoGuard && u.speaker === 'them') {
+    if (u.speaker === 'them') {
       const echoes = this.state.utterances
         .slice(-10)
         .filter((x) => x.speaker === 'you' && isEcho(x, [u]))
