@@ -1,0 +1,69 @@
+{
+  "title": "Senior backend engineer, Northwind Pay",
+  "preset": "interview",
+  "notes": "Senior Backend Engineer, Payments Platform team at Northwind Pay. Interviewer: Sarah, platform lead. Round 2: background + system design. Want to come across as someone who has run high-scale systems in production.",
+  "profile": "Priya Sharma. Senior backend engineer, 6 years. Zepto (2022-now): built and own the recommendations platform in Go, Kafka and Redis; serves 40k requests/s; cut p99 latency from 180 ms to 95 ms by moving feature lookups to a Redis cluster with request coalescing; led a team of 4. Hardest problem there: Kafka consumer lag during flash sales, fixed with partition rebalancing and backpressure. Flipkart (2019-2022): search indexing pipeline in Java, Elasticsearch, reduced index rebuild from 6 hours to 40 minutes. IIT Roorkee, B.Tech CS 2019.",
+  "voices": { "you": "Daniel", "them": "Samantha" },
+  "lines": [
+    { "speaker": "them", "text": "Hi! Can you hear me okay?", "gapMs": 500, "expect": "none" },
+    { "speaker": "you", "text": "Yes, I can hear you fine. Thanks for having me.", "gapMs": 900 },
+    {
+      "speaker": "them",
+      "text": "Great. So I'm Sarah, I lead the platform team here. Our team builds the payments infrastructure, and we handle about two million transactions a day.",
+      "gapMs": 800,
+      "expect": "none"
+    },
+    {
+      "speaker": "them",
+      "text": "So, to start, could you walk me through your background and what you've been working on recently?",
+      "gapMs": 1800,
+      "expect": "card"
+    },
+    {
+      "speaker": "you",
+      "text": "Sure. I'm a backend engineer with about six years of experience. For the last three years I've been at Zepto, where I built and own the recommendations platform.",
+      "gapMs": 2600
+    },
+    {
+      "speaker": "them",
+      "text": "Nice. What was the hardest scaling problem you hit on that platform, and how did you fix it?",
+      "gapMs": 900,
+      "expect": "extend"
+    },
+    {
+      "speaker": "you",
+      "text": "The hardest one was Kafka consumer lag during flash sales. We fixed it with partition rebalancing and backpressure on the producers.",
+      "gapMs": 2600
+    },
+    { "speaker": "them", "text": "Okay, got it. Makes sense.", "gapMs": 700, "expect": "none" },
+    {
+      "speaker": "them",
+      "text": "Let's switch gears. How would you design a rate limiter for a public API that serves millions of users?",
+      "gapMs": 1800,
+      "expect": "card"
+    },
+    {
+      "speaker": "you",
+      "text": "Okay. I'd start with a token bucket per API key, with the counters stored in Redis.",
+      "gapMs": 2800
+    },
+    {
+      "speaker": "them",
+      "text": "And how would that work across multiple data centers?",
+      "gapMs": 900,
+      "expect": "extend"
+    },
+    {
+      "speaker": "you",
+      "text": "Good question. I would keep local buckets in each region and sync them asynchronously.",
+      "gapMs": 2800
+    },
+    {
+      "speaker": "them",
+      "text": "Alright, that's all from my side. Do you have any questions for me?",
+      "gapMs": 1200,
+      "expect": "card"
+    },
+    { "speaker": "you", "text": "Yes, I do have a couple.", "gapMs": 2500 }
+  ]
+}

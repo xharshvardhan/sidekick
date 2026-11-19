@@ -41,3 +41,7 @@ npmRebuild: false
 publish:
   provider: generic
   url: https://example.com/auto-updates
+# the audio helper ships next to the app resources (process.resourcesPath/bin/audiocap)
+extraResources:
+  - from: resources/bin
+    to: bin

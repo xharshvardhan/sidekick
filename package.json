@@ -19,7 +19,9 @@
     "build:mac": "electron-vite build && electron-builder --mac",
     "native": "swiftc -O native/audiocap.swift -o resources/bin/audiocap",
     "test": "vitest run",
-    "predev": "test -x resources/bin/audiocap || npm run native"
+    "shots": "electron scripts/shots.mjs",
+    "predev": "test -x resources/bin/audiocap || npm run native",
+    "sim": "tsx scripts/sim/run.ts"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
@@ -49,6 +51,7 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "tailwindcss": "^4.3.5",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vite": "^8.3.4",
     "vitest": "^4.1.12"

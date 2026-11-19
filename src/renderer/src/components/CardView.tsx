@@ -1,0 +1,211 @@
+import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { Check, ChevronRight, CircleAlert } from 'lucide-react'
+import { Markdown } from '@openai/apps-sdk-ui/components/Markdown'
+import { ShimmerText } from '@openai/apps-sdk-ui/components/ShimmerText'
+import type { Card, CardSection } from '../../../shared/types'
+import { useHotkey } from '../lib'
+
+const KIND: Record<Card['source'], string> = {
+  auto: 'They asked',
+  ask: 'You asked',
+  screen: 'On screen',
+  deeper: 'In depth'
+}
+
+/** px at scale 1; everything in the card scales with `scale` (overlay text size setting). */
+const px = (n: number, scale: number): string => `${(n * scale).toFixed(2)}px`
+
+export function CardView({
+  card,
+  scale = 1,
+  detailOpen = false
+}: {
+  card: Card
+  scale?: number
+  /** Show detail fully expanded (the Live page has room for it). */
+  detailOpen?: boolean
+}): ReactNode {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const streaming = card.status === 'streaming'
+  const sections = card.sections
+  const newest = sections[sections.length - 1]
+  // Keep the previous section open until the new `say` line has finished streaming.
+  const sayDone = !streaming || !newest || newest.points.length > 0 || newest.detail !== ''
+  const ordered = [...sections].reverse() // newest on top, older below
+
+  return (
+    <div className="selectable" style={{ fontSize: px(14.5, scale) } as CSSProperties}>
+      {!newest && streaming && (
+        <ShimmerText className="font-medium text-secondary" as="p">
+          Working out what to say…
+        </ShimmerText>
+      )}
+      {ordered.map((s, i) => {
+        const index = sections.length - 1 - i
+        const isNewest = i === 0
+        const open = isNewest || expanded[s.id] || (i === 1 && !sayDone)
+        const label = index === 0 ? KIND[card.source] : 'Follow-up'
+        if (!open)
+          return (
+            <button
+              key={s.id}
+              onClick={() => setExpanded({ ...expanded, [s.id]: true })}
+              className="no-drag mt-3 flex w-full items-center gap-1.5 border-t border-subtle pt-2.5 text-left text-tertiary hover:text-secondary"
+              style={{ fontSize: px(12.5, scale) }}
+            >
+              <ChevronRight className="size-3.5 shrink-0" />
+              <span
+                className="shrink-0 font-semibold tracking-wide uppercase"
+                style={{ fontSize: px(10.5, scale) }}
+              >
+                {label}
+              </span>
+              <span className="truncate">{s.prompt}</span>
+            </button>
+          )
+        return (
+          <div key={s.id} className={isNewest ? '' : 'mt-3 border-t border-subtle pt-3'}>
+            <SectionBody
+              section={s}
+              label={label}
+              scale={scale}
+              streaming={isNewest && streaming}
+              detailOpen={detailOpen}
+              onCollapse={isNewest ? undefined : () => setExpanded({ ...expanded, [s.id]: false })}
+            />
+          </div>
+        )
+      })}
+      {card.status === 'error' && (
+        <p
+          className="mt-2 flex items-start gap-2 text-danger"
+          style={{ fontSize: px(13.5, scale) }}
+        >
+          <CircleAlert className="mt-[0.2em] size-[1.05em] shrink-0" />
+          <span>{card.error || 'Something went wrong while answering.'}</span>
+        </p>
+      )}
+    </div>
+  )
+}
+
+function SectionBody({
+  section,
+  label,
+  scale,
+  streaming,
+  detailOpen,
+  onCollapse
+}: {
+  section: CardSection
+  label: string
+  scale: number
+  streaming: boolean
+  detailOpen: boolean
+  onCollapse?: () => void
+}): ReactNode {
+  const { prompt, say, points, detail } = section
+  // Where the soft caret goes: after whatever is currently growing.
+  const caretAt = !streaming ? '' : detail ? 'detail' : points.length ? 'points' : 'say'
+  return (
+    <div>
+      {/* The label line is always reserved, so the say line never shifts when the prompt arrives. */}
+      <div
+        className="flex items-center gap-1.5 text-tertiary"
+        style={{ fontSize: px(10.5, scale), lineHeight: px(16, scale), minHeight: px(16, scale) }}
+        onClick={onCollapse}
+      >
+        <span className="shrink-0 font-semibold tracking-wider uppercase">{label}</span>
+        {prompt && (
+          <>
+            <span aria-hidden>·</span>
+            <span className="truncate font-medium" style={{ fontSize: px(12, scale) }}>
+              {prompt}
+            </span>
+          </>
+        )}
+      </div>
+      <p
+        className={`mt-1 font-semibold text-default ${caretAt === 'say' ? 'caret' : ''}`}
+        style={{ fontSize: px(17, scale), lineHeight: 1.35, letterSpacing: '-0.005em' }}
+      >
+        {say}
+      </p>
+      {points.length > 0 && (
+        <ul className="mt-2 space-y-1 leading-[1.4]">
+          {points.map((p, i) => (
+            <li
+              key={p.id}
+              className={`flex max-w-[60ch] items-start gap-2 ${p.covered ? 'text-tertiary' : 'text-default'}`}
+            >
+              {p.covered ? (
+                <Check
+                  className="mt-[0.22em] size-[0.95em] shrink-0 text-accent-text opacity-80"
+                  aria-label="Covered"
+                />
+              ) : (
+                <span className="mt-[0.55em] size-[0.36em] shrink-0 rounded-full bg-[var(--color-text-secondary)]" />
+              )}
+              <span className={caretAt === 'points' && i === points.length - 1 ? 'caret' : ''}>
+                {p.text}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {detail && (
+        <Detail
+          markdown={detail}
+          open={detailOpen}
+          streaming={caretAt === 'detail'}
+          scale={scale}
+        />
+      )}
+    </div>
+  )
+}
+
+function Detail({
+  markdown,
+  open: startOpen,
+  streaming,
+  scale
+}: {
+  markdown: string
+  open: boolean
+  streaming: boolean
+  scale: number
+}): ReactNode {
+  const [open, setOpen] = useState(startOpen)
+  const [overflows, setOverflows] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const deeper = useHotkey('deeper')
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (el) setOverflows(el.scrollHeight > el.clientHeight + 2)
+  }, [markdown, open])
+  const lines = 3 * 1.5 * 13.5 * scale
+  return (
+    <div className="mt-2.5 text-secondary">
+      <div
+        ref={ref}
+        className={`card-md overflow-hidden ${open ? '' : 'clamped'} ${streaming ? 'caret' : ''}`}
+        style={{ maxHeight: open ? undefined : `${lines}px`, fontSize: px(13.5, scale) }}
+      >
+        <Markdown skipHtml copyableCodeBlocks={false}>
+          {markdown}
+        </Markdown>
+      </div>
+      {!open && overflows && (
+        <button
+          onClick={() => setOpen(true)}
+          className="no-drag mt-1 flex items-center gap-1.5 font-medium text-secondary hover:text-default"
+          style={{ fontSize: px(12, scale) }}
+        >
+          More
+          {deeper && <span className="text-tertiary">· {deeper} goes deeper</span>}
+        </button>
+      )}
+    </div>
+  )
+}

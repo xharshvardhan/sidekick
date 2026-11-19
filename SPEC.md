@@ -47,9 +47,14 @@ Keep it small: no DI framework, no event bus library, plain modules and a tiny t
 - Segmenter per channel: adaptive energy VAD (track noise floor; speech = rms > max(floor×3, 120)),
   300 ms pre-roll, end a segment after 550 ms of silence or 15 s. Drop segments with < 250 ms speech.
   Emit `speechStart`, `speechEnd(segment pcm, startedAt, endedAt)`. Publish levels 8×/s.
-- If echo cancellation is on and the mic stream is digitally silent for 20 s, restart it with `--no-aec`
-  and turn on the text echo guard: drop a `you` utterance that overlaps a `them` utterance in time
-  and shares ≥ 60% of its words.
+  Timestamps come from sample counts anchored to each helper's `ready` time, not from `Date.now()`
+  per chunk; exclude the pre-roll when comparing overlap between channels.
+- AEC fallback: only if every mic sample is exactly 0 for 3 s while the system channel has audio
+  (a wedged voice-processing unit), restart the mic with `--no-aec` and show a persistent warning
+  (`AudioHealth.message`). A quiet user must never trigger it.
+- When running `--no-aec` (fallback or setting): (a) energy gate: ignore mic speech while the
+  system channel is loud and the mic level is below ~0.6× the system level; (b) text echo guard:
+  drop a `you` utterance that overlaps a `them` utterance in time and shares ≥ 60% of its words.
 
 ### Transcription
 - Each segment → WAV → STT model, prompt: verbatim transcript, nothing if no intelligible speech,
@@ -63,6 +68,8 @@ Goal: behave like a sharp friend who knows when to speak up and when to stay qui
 1. `them` finishes speaking (`speechEnd`). Start immediately, do not wait for the transcript:
    send the untranscribed segment audio as `inlineData` together with the text context
    (audio fast path; this saves ~1.4 s). The transcript arrives in parallel for the record.
+   Attach every segment still waiting for its transcript, from either speaker, in time order,
+   each preceded by a text label (`You (audio):` / `Them (audio):`), so fast exchanges lose nothing.
 2. If `them` starts speaking again before the answer has shown its first line, cancel and wait for the
    next `speechEnd`, then run with all pending audio. For long monologues (> 20 s pending) run anyway.
 3. Skip without a model call when the segment is a backchannel: < 1.2 s long while `you` spoke
@@ -72,22 +79,25 @@ Goal: behave like a sharp friend who knows when to speak up and when to stay qui
    (deep model, expands the active card's `detail`).
 5. One generation at a time per trigger kind; a newer trigger cancels the older stream.
 
-**What it sends** (cue model, streaming, no thinking): system prompt for the preset + profile +
-brief notes + brief files (inlineData for pdf/images, text for the rest) + rolling summary + the last
-~30 utterances labelled `Them:` / `You:` + the active card (prompts and points, with covered marks)
-+ the new audio. Keep the stable parts first so implicit caching can apply.
+**What it sends** (cue model, streaming, no thinking), strictly ordered from most stable to most
+changing so implicit caching applies: system prompt for the preset + profile + brief notes + brief
+files (inlineData for pdf/images, text for the rest) → rolling summary → the last ~30 utterances
+labelled `Them:` / `You:` → the active card (prompts and points, with covered marks) → the new audio.
 
 **What it returns**: a line protocol that can be parsed while streaming:
 ```
-@none                       ← nothing needed (small talk, they are still setting up, you're doing fine)
-@new <what they asked>      ← new topic: start a new card
-@extend <what they asked>   ← follow-up on the active card's topic: add a section to it
+@none        ← nothing needed (small talk, they are still setting up, you're doing fine)
+@new         ← new topic: start a new card
+@extend      ← follow-up on the active card's topic: add a section to it
 > <one sentence to say right now, ≤ 22 words, first person>
 - <talking point, ≤ 12 words>
 - <talking point>            (2 to 4 points, in the order to say them)
+? <what they asked, ≤ 10 words>     ← the section's `prompt` label, after the points
 ## 
 <optional detail in markdown: code, numbers, a worked example>
 ```
+The directive is bare and the `say` line comes straight after it, so the first readable words arrive
+as early as possible; the label comes later (show the section without a label until it arrives).
 Write a streaming parser for this with unit tests (partial lines, missing sections, junk before `@`).
 The prompt must make the model: answer as the user would say it, grounded in the brief/profile
 (never invent facts about the user; if the brief lacks it, give a structure to answer with);
@@ -96,10 +106,16 @@ said (do not repeat covered points; for a follow-up, build on their answer).
 
 **How cards behave** (so the user's eyes never have to hunt)
 - The newest section's `say` line is always the first line of the card. Streaming only appends.
-- `@extend`: add a section; the overlay collapses older sections to their `prompt` line.
-- `@new` while the user is speaking (`partial.you`) or the active card is < 4 s old, or pinned:
-  put it in `queuedCardId`. Promote it when the user has been silent for 1.2 s (and not pinned),
-  or on `cue:step(1)`. Otherwise it becomes active immediately.
+- `@extend`: add a section. The overlay shows the newest section on top and older sections collapsed
+  to their `prompt` line *below* it; the previous section collapses only once the new `say` line has
+  finished streaming.
+- `@new` goes to `queuedCardId` (not shown as the active card) when any of these hold: the user is
+  speaking (`partial.you`) or spoke in the last 2.5 s; the active card is < 4 s old; pinned.
+  Promote it when the user has been silent for 2.5 s and not pinned, or on `cue:step(1)`.
+  Otherwise it becomes active immediately. If the user starts speaking before the first line of a
+  new card arrives, route it to the queue rather than flashing it.
+- `thinking` turns true only 400 ms after a trigger and only if the generation is still alive, so
+  pauses in their speech do not make the status flicker.
 - Coverage: after each `you` utterance, mark a point covered when ≥ 50% of its content words
   (stopwords removed, light stemming) appear in what the user has said since that section started.
   No model call.
@@ -175,11 +191,14 @@ Left sidebar: Home, Live (dot when live), History, Settings. Bottom: audio statu
   - `say` line: 17 px, semibold, high contrast. The first thing the eye lands on.
   - Points: 14.5 px, one per line, covered points dimmed with a check. Max line length ~60 chars.
   - Detail: collapsed to 3 lines with "more" (⌥⇧D also expands); code in a mono block.
-  - Older sections collapsed to a one-line prompt above a hairline, click to expand.
+  - Older sections collapsed to a one-line prompt below a hairline, click to expand.
   - Streaming shows a soft caret; no layout jumps; no auto-scroll above the reading position.
 - Queued card: a slim bar at the bottom, "Next: <prompt> · ⌥⇧]", never replaces what is being read.
 - Idle (no card yet): one line of live caption of the last thing they said, and hints for ⌥⇧A / ⌥⇧S.
-- Footer: slim Ask input, shown on hover or when focused.
+- Ask input: hidden by default; ⌥⇧A with the overlay focused, or the small Ask button in the
+  header, opens it as a footer row. No hover-triggered layout changes anywhere; the overlay's height
+  never changes on its own.
+- Older sections sit below the newest one (see card behaviour), collapsed to one line each.
 - Errors appear as a single inline line in the body.
 
 ## Definition of done

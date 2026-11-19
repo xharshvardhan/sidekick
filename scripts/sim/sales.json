@@ -1,0 +1,73 @@
+{
+  "title": "Discovery call with Lumen Health",
+  "preset": "sales",
+  "notes": "Selling Acme Analytics (product analytics). Prospect: Dev, Head of Product at Lumen Health, about 8 people on the product team. Pricing: Team plan 499 USD per month for up to 10 seats, billed annually; Enterprise is custom above 10 seats. Annual prepay gets 2 months free. Integrations: native Snowflake and BigQuery connectors (reads in place, no data copy), Segment source. Security: SOC 2 Type II, SSO on Enterprise only, data stays in the customer's warehouse. 14-day free trial with onboarding call. Goal: book a technical demo with their data team this week.",
+  "profile": "Alex, account executive at Acme Analytics for 2 years. Previously customer success at a BI startup.",
+  "voices": { "you": "Daniel", "them": "Rishi" },
+  "lines": [
+    {
+      "speaker": "them",
+      "text": "Hey, sorry I'm a couple of minutes late, my last meeting ran over.",
+      "gapMs": 500,
+      "expect": "none"
+    },
+    { "speaker": "you", "text": "No worries at all. How's your week going?", "gapMs": 900 },
+    {
+      "speaker": "them",
+      "text": "Busy, but good. We just closed our quarter, so things are a bit calmer now.",
+      "gapMs": 800,
+      "expect": "none"
+    },
+    {
+      "speaker": "you",
+      "text": "Congrats. So I'd love to understand what made you take this call.",
+      "gapMs": 900
+    },
+    {
+      "speaker": "them",
+      "text": "Sure. Right now our product team pulls numbers out of Snowflake by hand, and it takes days to answer basic questions about retention.",
+      "gapMs": 900
+    },
+    {
+      "speaker": "you",
+      "text": "That's a really common pain. Retention questions shouldn't take days.",
+      "gapMs": 2500
+    },
+    {
+      "speaker": "them",
+      "text": "So how much would this cost for a team of about eight people?",
+      "gapMs": 900,
+      "expect": "card"
+    },
+    {
+      "speaker": "you",
+      "text": "For eight people you'd be on our team plan, which is four ninety nine a month.",
+      "gapMs": 2600
+    },
+    {
+      "speaker": "them",
+      "text": "Hmm. Honestly, that's more than we were hoping to spend right now.",
+      "gapMs": 900,
+      "expect": "card"
+    },
+    {
+      "speaker": "you",
+      "text": "I understand. Let me explain how teams usually think about it.",
+      "gapMs": 2600
+    },
+    {
+      "speaker": "them",
+      "text": "Okay. Do you connect to Snowflake directly, or would we need to move our data somewhere?",
+      "gapMs": 1500,
+      "expect": "card"
+    },
+    { "speaker": "you", "text": "We connect directly, so nothing gets copied.", "gapMs": 2600 },
+    {
+      "speaker": "them",
+      "text": "Good. And are you SOC 2 compliant? Our security team will definitely ask.",
+      "gapMs": 900,
+      "expect": "card"
+    },
+    { "speaker": "you", "text": "Yes, we're SOC 2 Type Two.", "gapMs": 2500 }
+  ]
+}

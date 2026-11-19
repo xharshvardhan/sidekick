@@ -1,8 +1,13 @@
-import { ElectronAPI } from '@electron-toolkit/preload'
+import type { Api, Events } from '../shared/types'
 
 declare global {
   interface Window {
-    electron: ElectronAPI
-    api: unknown
+    sidekick: {
+      invoke<K extends keyof Api>(
+        channel: K,
+        ...args: Parameters<Api[K]>
+      ): Promise<ReturnType<Api[K]>>
+      on<K extends keyof Events>(event: K, fn: (payload: Events[K]) => void): () => void
+    }
   }
 }

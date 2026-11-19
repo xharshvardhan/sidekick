@@ -1,0 +1,49 @@
+{
+  "title": "Weekly sync with Maya",
+  "preset": "meeting",
+  "notes": "Weekly 1:1 with Maya (design lead). Agenda: onboarding redesign review.",
+  "profile": "Sam, product manager on the growth team.",
+  "voices": { "you": "Daniel", "them": "Karen" },
+  "lines": [
+    { "speaker": "them", "text": "Hey! How are you doing?", "gapMs": 500, "expect": "none" },
+    { "speaker": "you", "text": "I'm good, thanks. How about you?", "gapMs": 900 },
+    {
+      "speaker": "them",
+      "text": "Pretty good, pretty good. The weather has been crazy here this week, it's been raining non stop.",
+      "gapMs": 800,
+      "expect": "none"
+    },
+    {
+      "speaker": "you",
+      "text": "Oh, same here. I got completely soaked on Tuesday.",
+      "gapMs": 900
+    },
+    {
+      "speaker": "them",
+      "text": "Ha, yeah. Did you catch the game last night?",
+      "gapMs": 800,
+      "expect": "none"
+    },
+    { "speaker": "you", "text": "No, I missed it. Was it good?", "gapMs": 900 },
+    {
+      "speaker": "them",
+      "text": "Yeah, it went to overtime, it was wild. Anyway, let me just share my screen, one sec.",
+      "gapMs": 800,
+      "expect": "none"
+    },
+    {
+      "speaker": "them",
+      "text": "Okay, can you see my screen now?",
+      "gapMs": 2500,
+      "expect": "none"
+    },
+    { "speaker": "you", "text": "Yep, I can see it.", "gapMs": 900 },
+    {
+      "speaker": "them",
+      "text": "Cool. Give me a second to pull up the doc.",
+      "gapMs": 800,
+      "expect": "none"
+    },
+    { "speaker": "you", "text": "Sure, take your time.", "gapMs": 900 }
+  ]
+}

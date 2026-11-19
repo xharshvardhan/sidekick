@@ -1,35 +1,49 @@
-import Versions from './components/Versions'
-import electronLogo from './assets/electron.svg'
+import type { ReactNode } from 'react'
+import { Sidebar } from './components/Sidebar'
+import { Toasts } from './components/Toasts'
+import { useRoute, useTheme } from './lib'
+import { History, SessionPage } from './screens/History'
+import { Home } from './screens/Home'
+import { Live } from './screens/Live'
+import { Overlay } from './screens/Overlay'
+import { Settings } from './screens/Settings'
+import { Setup } from './screens/Setup'
+import { useStore } from './store'
 
-function App(): React.JSX.Element {
-  const ipcHandle = (): void => window.electron.ipcRenderer.send('ping')
+export function App(): ReactNode {
+  const [route, param] = useRoute()
+  const settings = useStore((s) => s.settings)
+  useTheme(settings?.theme)
+
+  if (route === 'overlay') return <Overlay />
+  if (!settings) return <div className="drag h-full" />
+  if (!settings.onboarded)
+    return (
+      <>
+        <Setup firstRun />
+        <Toasts />
+      </>
+    )
 
   return (
-    <>
-      <img alt="logo" className="logo" src={electronLogo} />
-      <div className="creator">Powered by electron-vite</div>
-      <div className="text">
-        Build an Electron app with <span className="react">React</span>
-        &nbsp;and <span className="ts">TypeScript</span>
-      </div>
-      <p className="tip">
-        Please try pressing <code>F12</code> to open the devTool
-      </p>
-      <div className="actions">
-        <div className="action">
-          <a href="https://electron-vite.org/" target="_blank" rel="noreferrer">
-            Documentation
-          </a>
-        </div>
-        <div className="action">
-          <a target="_blank" rel="noreferrer" onClick={ipcHandle}>
-            Send IPC
-          </a>
-        </div>
-      </div>
-      <Versions></Versions>
-    </>
+    <div className="flex h-full">
+      <Sidebar route={route} />
+      <main className="min-w-0 flex-1 bg-surface">
+        {route === 'live' ? (
+          <Live />
+        ) : route === 'history' ? (
+          <History />
+        ) : route === 'session' && param ? (
+          <SessionPage key={param} id={param} />
+        ) : route === 'settings' ? (
+          <Settings />
+        ) : route === 'setup' ? (
+          <Setup firstRun={false} />
+        ) : (
+          <Home />
+        )}
+      </main>
+      <Toasts />
+    </div>
   )
 }
-
-export default App

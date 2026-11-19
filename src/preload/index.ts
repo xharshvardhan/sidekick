@@ -1,22 +1,23 @@
-import { contextBridge } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
+// Exposes the typed `window.sidekick` bridge. Nothing else from Node or Electron reaches the page.
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import type { Api, Events } from '../shared/types'
 
-// Custom APIs for renderer
-const api = {}
-
-// Use `contextBridge` APIs to expose Electron APIs to
-// renderer only if context isolation is enabled, otherwise
-// just add to the DOM global.
-if (process.contextIsolated) {
-  try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('api', api)
-  } catch (error) {
-    console.error(error)
+const sidekick = {
+  invoke<K extends keyof Api>(
+    channel: K,
+    ...args: Parameters<Api[K]>
+  ): Promise<ReturnType<Api[K]>> {
+    return ipcRenderer.invoke(channel, ...args)
+  },
+  on<K extends keyof Events>(event: K, fn: (payload: Events[K]) => void): () => void {
+    const handler = (_e: IpcRendererEvent, payload: Events[K]): void => fn(payload)
+    ipcRenderer.on(event, handler)
+    return () => {
+      ipcRenderer.removeListener(event, handler)
+    }
   }
-} else {
-  // @ts-ignore (define in dts)
-  window.electron = electronAPI
-  // @ts-ignore (define in dts)
-  window.api = api
 }
+
+export type SidekickBridge = typeof sidekick
+
+contextBridge.exposeInMainWorld('sidekick', sidekick)
