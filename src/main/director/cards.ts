@@ -8,6 +8,7 @@ export type DeckState = Pick<LiveState, 'cards' | 'activeCardId' | 'queuedCardId
 
 export const QUIET_MS = 2500 // user silence before a queued card is promoted
 export const FRESH_MS = 4000 // an active card younger than this is not replaced
+export const MAX_SECTIONS = 3 // a follow-up beyond this starts a new card
 
 let seq = 0
 export const newId = (p: string): string => `${p}${Date.now().toString(36)}${(seq++).toString(36)}`
@@ -70,13 +71,13 @@ export class Deck {
   }
 
   /** Add a follow-up section to the current card, which must still be `expectedId` (the card the model
-   *  was shown). Returns null when there is nothing to extend, so the caller starts a new card. */
+   *  was shown). Returns null when there is nothing to extend or the card is full, so the caller starts a new card. */
   addSection(
     askedAt: number,
     expectedId: string | undefined
   ): { card: Card; section: CardSection } | null {
     const card = this.current
-    if (!card || card.id !== expectedId) return null
+    if (!card || card.id !== expectedId || card.sections.length >= MAX_SECTIONS) return null
     if (this.s.pinned && card.id === this.s.activeCardId) return null // pinned cards are frozen
     const section = this.newSection(askedAt)
     card.sections.push(section)

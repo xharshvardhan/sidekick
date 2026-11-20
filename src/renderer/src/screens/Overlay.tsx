@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   AppWindow,
   CircleAlert,
@@ -134,7 +134,7 @@ function Header({
         {index >= 0 && (
           <Tip
             label={
-              <span className="whitespace-nowrap">
+              <span>
                 Card {index + 1} of {shown.length} · {prev} previous · {next} next
               </span>
             }
@@ -185,11 +185,15 @@ function Body({ live, scale }: { live: LiveState; scale: number }): ReactNode {
   const screen = useHotkey('screen')
   const lastThem = [...live.utterances].reverse().find((u) => u.speaker === 'them')
   const on = live.session === 'live' || live.session === 'paused'
+  // A new section lands on top: bring the top back into view so its say line is never scrolled away.
+  const ref = useRef<HTMLDivElement>(null)
+  const newestId = active?.sections.at(-1)?.id
+  useEffect(() => ref.current?.scrollTo({ top: 0 }), [active?.id, newestId])
 
   return (
-    <div className="no-drag min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-3">
+    <div ref={ref} className="no-drag min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-3">
       {active ? (
-        <CardView key={active.id} card={active} scale={scale} />
+        <CardView key={active.id} card={active} scale={scale} compact />
       ) : !on ? (
         <div className="flex flex-col items-start gap-3">
           <p className="text-sm text-secondary">

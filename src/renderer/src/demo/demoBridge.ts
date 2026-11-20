@@ -9,15 +9,19 @@ import type {
   Settings,
   WindowMode
 } from '../../../shared/types'
-import type { Bridge } from '../bridge'
+import { demoNoProfile, demoStress, demoToast, type Bridge } from '../bridge'
 import {
+  demoProfile,
   demoRecap,
   sectionLimiter,
   sectionRegions,
   seedLive,
   seedPermissions,
   seedSessions,
-  seedSettings
+  seedSettings,
+  stressLive,
+  stressSessions,
+  stressText
 } from './seed'
 
 type Handlers = { [K in keyof Api]: (...args: Parameters<Api[K]>) => ReturnType<Api[K]> }
@@ -33,9 +37,27 @@ export function createDemoBridge(variant: string, scene: string): Bridge {
   const fresh = variant === 'empty'
   const animated = !scene && !fresh
   let settings: Settings = seedSettings(fresh)
+  if (demoNoProfile) settings = { ...settings, profile: '' }
+  const q = new URLSearchParams(location.search) // demo-only overrides: ?fontscale=1.3&opacity=0.6
+  if (q.has('fontscale') || q.has('opacity'))
+    settings = merge(settings, {
+      overlay: {
+        fontScale: Number(q.get('fontscale') ?? 1),
+        opacity: Number(q.get('opacity') ?? 1)
+      }
+    })
   let live: LiveState = seedLive(scene || 'queued', fresh)
   let sessions: Session[] = fresh ? [] : seedSessions()
   let permissions = seedPermissions(fresh)
+  if (demoStress) {
+    live = stressLive(live)
+    if (!fresh) sessions = stressSessions()
+    permissions = {
+      ...permissions,
+      vertex: { ok: false, message: stressText.error }
+    }
+  }
+  if (demoToast) setTimeout(() => emit('toast', { kind: 'error', text: stressText.error }), 400)
   let mode: WindowMode = 'app'
   let audioTest = false
   const listeners = new Map<keyof Events, Set<(p: never) => void>>()
@@ -159,6 +181,13 @@ export function createDemoBridge(variant: string, scene: string): Bridge {
         bytes: 182_400
       }
     ],
+    'profile:draft': (source) =>
+      new Promise<string>((r) =>
+        setTimeout(
+          () => r(source.kind === 'files' || source.kind === 'text' ? demoProfile : ''),
+          600
+        )
+      ) as never,
     'cue:ask': () => setLive({ thinking: true }),
     'cue:screen': () => setLive({ thinking: true }),
     'cue:deeper': () => emit('toast', { kind: 'info', text: 'Going deeper on this card…' }),

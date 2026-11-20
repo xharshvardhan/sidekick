@@ -6,6 +6,7 @@
     "src/main/**/*",
     "src/preload/**/*",
     "scripts/sim/**/*",
+    "scripts/replay/**/*",
     "tests/**/*"
   ],
   "compilerOptions": {

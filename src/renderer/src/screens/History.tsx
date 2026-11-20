@@ -1,18 +1,18 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ArrowLeft, CircleCheck, FileText, Sparkles, Trash2 } from 'lucide-react'
+import { ArrowLeft, CircleCheck, FileText, Sparkles, Trash2, UserRound } from 'lucide-react'
 import { Button } from '@openai/apps-sdk-ui/components/Button'
 import { EmptyMessage } from '@openai/apps-sdk-ui/components/EmptyMessage'
 import { LoadingIndicator } from '@openai/apps-sdk-ui/components/Indicator'
 import { Markdown } from '@openai/apps-sdk-ui/components/Markdown'
 import { SegmentedControl } from '@openai/apps-sdk-ui/components/SegmentedControl'
 import type { Recap, Session } from '../../../shared/types'
-import { sk } from '../bridge'
+import { demoTab, sk } from '../bridge'
 import { CardView } from '../components/CardView'
 import { SessionList } from '../components/SessionList'
 import { Transcript } from '../components/Transcript'
 import { IconButton, Page, Panel } from '../components/ui'
 import { go, minutes, presetLabel, timeOfDay, when } from '../lib'
-import { errText } from '../store'
+import { errText, learnProfile } from '../store'
 
 export function History(): ReactNode {
   return (
@@ -27,8 +27,10 @@ type Tab = 'recap' | 'transcript' | 'cards'
 export function SessionPage({ id }: { id: string }): ReactNode {
   const [session, setSession] = useState<Session | null | undefined>(undefined)
   const [error, setError] = useState('')
-  const [tab, setTab] = useState<Tab>('recap')
+  const [tab, setTab] = useState<Tab>((demoTab as Tab) || 'recap')
   const [confirming, setConfirming] = useState(false)
+  const [learning, setLearning] = useState(false)
+  const [learnError, setLearnError] = useState('')
 
   useEffect(() => {
     sk()
@@ -44,6 +46,18 @@ export function SessionPage({ id }: { id: string }): ReactNode {
       go('history')
     } catch (e) {
       setError(`Couldn't delete: ${errText(e)}`)
+    }
+  }
+
+  async function learn(): Promise<void> {
+    setLearning(true)
+    setLearnError('')
+    try {
+      if (await learnProfile({ kind: 'session', id })) go('settings')
+    } catch (e) {
+      setLearnError(`Couldn't learn from this call: ${errText(e)}`)
+    } finally {
+      setLearning(false)
     }
   }
 
@@ -77,16 +91,29 @@ export function SessionPage({ id }: { id: string }): ReactNode {
         </span>
       }
       actions={
-        <Button
-          color="danger"
-          variant={confirming ? 'solid' : 'ghost'}
-          size="sm"
-          onClick={remove}
-          onBlur={() => setConfirming(false)}
-        >
-          <Trash2 />
-          {confirming ? 'Click again to delete' : 'Delete'}
-        </Button>
+        <>
+          <Button
+            color="secondary"
+            variant="outline"
+            size="sm"
+            onClick={learn}
+            loading={learning}
+            disabled={!session.utterances.some((u) => u.speaker === 'you')}
+          >
+            <UserRound />
+            Learn about me from this call
+          </Button>
+          <Button
+            color="danger"
+            variant={confirming ? 'solid' : 'ghost'}
+            size="sm"
+            onClick={remove}
+            onBlur={() => setConfirming(false)}
+          >
+            <Trash2 />
+            {confirming ? 'Click again to delete' : 'Delete'}
+          </Button>
+        </>
       }
     >
       <p className="-mt-1 text-sm text-secondary">
@@ -94,6 +121,7 @@ export function SessionPage({ id }: { id: string }): ReactNode {
         {session.endedAt && ` · ${minutes(session.endedAt - session.startedAt)}`} ·{' '}
         {session.utterances.length} lines · {session.cards.length} cards
       </p>
+      {learnError && <p className="mt-2 text-sm text-danger">{learnError}</p>}
       <SegmentedControl<Tab>
         className="mt-4"
         aria-label="Session view"
@@ -122,7 +150,7 @@ export function SessionPage({ id }: { id: string }): ReactNode {
         )}
         {tab === 'cards' &&
           (session.cards.length ? (
-            <div className="grid gap-3">
+            <div className="grid grid-cols-1 gap-3">
               {session.cards.map((c) => (
                 <Panel key={c.id} className="p-5">
                   <div className="mb-2 text-xs text-tertiary">{timeOfDay(c.createdAt)}</div>
@@ -184,14 +212,14 @@ function RecapView({
       </Panel>
     )
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-1 gap-4">
       <Panel className="selectable p-5">
         <h3 className="mb-2 heading-xs">Summary</h3>
         <Markdown skipHtml className="text-sm">
           {recap.summary}
         </Markdown>
       </Panel>
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel className="selectable p-5">
           <h3 className="mb-3 heading-xs">Action items</h3>
           {recap.actionItems.length ? (

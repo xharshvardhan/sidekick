@@ -111,6 +111,16 @@ describe('card policy (mocked model)', () => {
     expect(t.runs.at(-1)!.outcome).toBe('extend')
   })
 
+  it('a card holds at most 3 sections; the next follow-up starts a new card', async () => {
+    const t = setup([NEW('One.'), EXT('Two.'), EXT('Three.'), EXT('Four.')])
+    for (let i = 0; i < 4; i++) await t.auto()
+    expect(t.state.cards.map((c) => c.sections.map((s) => s.say))).toEqual([
+      ['One.', 'Two.', 'Three.'],
+      ['Four.']
+    ])
+    expect(t.runs.at(-1)!.outcome).toBe('new')
+  })
+
   it('a new card while the active one is < 4 s old is queued, then promoted', async () => {
     const t = setup([NEW('One.'), NEW('Two.')])
     await t.auto()

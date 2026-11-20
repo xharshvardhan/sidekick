@@ -31,6 +31,7 @@ export interface RunRecord {
   error?: string
   reason?: string // why skipped/cancelled
   raw?: string // the model's full reply (sim/debug)
+  cardId?: string // the card the run created or extended
 }
 
 export interface DirectorDeps {
@@ -48,11 +49,11 @@ export interface DirectorDeps {
   changed(): void
   toast(kind: 'info' | 'error', text: string): void
   onRun?(r: RunRecord): void
+  now?(): number // clock for records and card times (the replay runs in virtual time); default Date.now
 }
 
-const BACKCHANNEL_MS = 1200
+const BACKCHANNEL_MS = 700
 const YOU_RECENT_MS = 3000
-const MONOLOGUE_MS = 20_000
 const THINKING_DELAY_MS = 400
 
 interface Gen {
@@ -62,11 +63,19 @@ interface Gen {
 
 export class Director {
   private gens = new Map<TriggerKind, Gen>()
-  private themPendingMs = 0 // their speech since the last auto answer
   private brief: Brief | null = null
   private briefParts: Part[] = []
 
   constructor(private d: DirectorDeps) {}
+
+  private now(): number {
+    return this.d.now?.() ?? Date.now()
+  }
+
+  /** A generation is in flight. */
+  get busy(): boolean {
+    return this.gens.size > 0
+  }
 
   setBrief(brief: Brief, parts: Part[]): void {
     this.brief = brief
@@ -76,13 +85,12 @@ export class Director {
   /** They started talking again: drop an auto answer that has not shown anything yet. */
   onThemStart(): void {
     const g = this.gens.get('auto')
-    if (g && !g.shown && this.themPendingMs <= MONOLOGUE_MS) g.ctrl.abort('they kept talking')
+    if (g && !g.shown) g.ctrl.abort('they kept talking')
   }
 
   /** They finished a segment. Audio fast path: run now, the segment audio is in the context. */
   onThemEnd(startedAt: number, endedAt: number): void {
     const dur = endedAt - startedAt
-    this.themPendingMs += dur
     if (!this.d.state.autoCue || this.d.state.session !== 'live') return
     const a = this.d.activity()
     if (
@@ -131,7 +139,7 @@ export class Director {
   private finish(kind: TriggerKind, gen: Gen, rec: RunRecord): void {
     if (this.gens.get(kind) === gen) this.gens.delete(kind)
     if (!this.gens.size) this.d.state.thinking = false
-    rec.endedAt = Date.now()
+    rec.endedAt = this.now()
     this.d.changed()
     this.d.onRun?.(rec)
   }
@@ -144,7 +152,7 @@ export class Director {
     if (!this.brief) return
     const manual = kind !== 'auto'
     const gen = this.start(kind)
-    const now = Date.now()
+    const now = this.now()
     const rec: RunRecord = { kind, startedAt: now, speechEndAt: extra.speechEndAt }
     const askedAt = extra.speechEndAt ?? now
     const source: CardSource = kind
@@ -163,9 +171,9 @@ export class Director {
         const ext = p.kind === 'extend' ? deck.addSection(askedAt, shownCard?.id) : null
         target = ext ?? deck.addCard(source, askedAt, a, manual)
         made = ext ? 'extend' : 'new'
+        rec.cardId = target.card.id
         gen.shown = true
-        rec.firstLineAt = Date.now()
-        if (kind === 'auto') this.themPendingMs = 0
+        rec.firstLineAt = this.now()
       }
       deck.fill(target.section, p)
       rec.say = p.say
@@ -191,7 +199,7 @@ export class Director {
           maxTokens: 1200
         },
         (full) => {
-          rec.firstChunkAt ??= Date.now()
+          rec.firstChunkAt ??= this.now()
           rec.raw = full
           if (!gen.ctrl.signal.aborted) apply(full, false)
         }
@@ -200,7 +208,6 @@ export class Director {
       apply(text, true)
       rec.outcome = made
       if (target) target.card.status = 'done'
-      if (kind === 'auto') this.themPendingMs = 0
       if (!target && manual) this.d.toast('info', 'Nothing useful to add right now.')
     } catch (e) {
       if (gen.ctrl.signal.aborted || isAbort(e)) {
@@ -214,7 +221,7 @@ export class Director {
         if (target) {
           target.card.status = 'error'
           target.card.error = msg
-        } else if (manual) deck.addError(source, msg, Date.now())
+        } else if (manual) deck.addError(source, msg, this.now())
         else this.d.toast('error', `Auto cue failed: ${msg}`)
       }
     } finally {
@@ -231,7 +238,7 @@ export class Director {
       return
     }
     const gen = this.start('deeper')
-    const rec: RunRecord = { kind: 'deeper', startedAt: Date.now() }
+    const rec: RunRecord = { kind: 'deeper', startedAt: this.now() }
     const s = this.d.settings()
     const before = section.detail
     this.d.deck.deepDetail.add(section.id)
@@ -257,7 +264,7 @@ export class Director {
         },
         (full) => {
           if (gen.ctrl.signal.aborted) return
-          if (!rec.firstLineAt) rec.firstLineAt = Date.now()
+          if (!rec.firstLineAt) rec.firstLineAt = this.now()
           section.detail = full.trim()
           this.d.changed()
         }

@@ -2,11 +2,13 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 import { copyFileSync, mkdirSync, realpathSync, statSync } from 'fs'
 import { basename, join, sep } from 'path'
+import type { Part } from '@google/genai'
 import type { Api, BriefFile, Recap } from '../shared/types'
 import type { Engine } from './engine'
 import { newId } from './director/cards'
-import { mimeFor } from './director/brief'
+import { briefParts, mimeFor } from './director/brief'
 import { errorMessage, type Llm } from './llm'
+import { draftProfile, sessionSelfText } from './profile'
 import { generateRecap, type SessionStore } from './sessions'
 import type { SettingsStore } from './settings'
 import { checkPermissions, openPermissionPane, screenshot } from './system'
@@ -91,6 +93,26 @@ function ownFiles(files: BriefFile[], dir: string): BriefFile[] {
   return files.filter((f) => real(f.path)?.startsWith(root + sep))
 }
 
+/** Resume files for the profile builder: read in place, nothing is copied or kept. */
+async function pickProfileFiles(parent: BrowserWindow | null): Promise<BriefFile[]> {
+  const opts: Electron.OpenDialogOptions = {
+    title: 'Choose your resume or notes',
+    properties: ['openFile', 'multiSelections'],
+    filters: [{ name: 'Documents', extensions: ['pdf', 'txt', 'md', 'png', 'jpg', 'jpeg', 'webp'] }]
+  }
+  const win = BrowserWindow.getFocusedWindow() ?? parent
+  const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+  return r.canceled
+    ? []
+    : r.filePaths.map((path) => ({
+        id: path,
+        name: basename(path),
+        mimeType: mimeFor(path),
+        path,
+        bytes: statSync(path).size
+      }))
+}
+
 export function registerIpc(ctx: AppCtx): void {
   const { engine, settings, sessions, windows } = ctx
   const needSession = (): boolean => {
@@ -159,6 +181,33 @@ export function registerIpc(ctx: AppCtx): void {
         }
       }
       return out
+    },
+    'profile:draft': async (source) => {
+      try {
+        let parts: Part[]
+        if (source.kind === 'text') parts = [{ text: source.text }]
+        else if (source.kind === 'session') {
+          const s = sessions.get(source.id)
+          const text = s ? sessionSelfText(s) : ''
+          if (!text) throw new Error('You did not say anything in this session.')
+          parts = [{ text }]
+        } else {
+          const files = await pickProfileFiles(windows.app)
+          if (!files.length) return ''
+          const used = briefParts(files)
+          if (!used.parts.length) throw new Error(`Couldn't read ${used.skipped.join(', ')}.`)
+          parts = used.parts
+        }
+        return await draftProfile(
+          ctx.llm(),
+          settings.value.models.deep,
+          settings.value.profile,
+          parts
+        )
+      } catch (e) {
+        const msg = errorMessage(e)
+        throw new Error(msg, { cause: e })
+      }
     },
     'cue:ask': (q) => {
       if (needSession()) void engine.director.ask(q)

@@ -170,6 +170,76 @@ export const cardLeaving: Card = {
   ]
 }
 
+/** Stress case: seven follow-ups, a very long prompt, a long code line. */
+const follow = (n: number, prompt: string, say: string, detail = ''): CardSection => ({
+  id: `m${n}`,
+  prompt,
+  say,
+  points: pts([
+    ['First thing worth saying about this', n % 2 === 0],
+    ['Second point, with a number: 99.9% availability', false]
+  ]),
+  detail
+})
+export const cardSeven: Card = {
+  id: 'c6',
+  createdAt: now - 2_000,
+  source: 'auto',
+  status: 'done',
+  sections: [
+    follow(
+      1,
+      'Design a URL shortener',
+      'I would generate a base62 id from a counter and store the mapping in a key-value store.'
+    ),
+    follow(
+      2,
+      'How would you avoid collisions between several writers at once',
+      'Each writer takes a block of ids from a central counter, so no two writers can ever hand out the same id.'
+    ),
+    follow(
+      3,
+      'What about custom aliases that users pick themselves',
+      'Aliases go in the same table with a unique constraint; a clash returns a clear error to the user.'
+    ),
+    follow(
+      4,
+      'How do you keep reads fast when one link goes viral',
+      'Cache hot links at the edge and in Redis; the database only sees cache misses.'
+    ),
+    follow(
+      5,
+      'How would you expire links after a set time',
+      'Store an expiry with each row; reads check it, and a nightly job deletes the old rows.'
+    ),
+    follow(
+      6,
+      'And analytics: count clicks per link without slowing redirects',
+      'Publish a click event to a queue after the redirect and aggregate it in batches.'
+    ),
+    follow(
+      7,
+      'Show me the schema and the id generator in code, including the block allocation that each writer does on start up',
+      'The table is three columns, and each writer holds a block of 1,000 ids in memory.',
+      [
+        'Block allocation, one round trip per 1,000 ids:',
+        '',
+        '```sql',
+        'UPDATE id_counter SET next_id = next_id + 1000 WHERE name = $1 RETURNING next_id - 1000 AS block_start, next_id AS block_end, now() AS allocated_at, current_setting($2) AS node_label;',
+        '```',
+        '',
+        '```ts',
+        "const encode = (n: number): string => n.toString(36).padStart(7, '0') + '-' + Math.random().toString(36).slice(2) + '-and-a-very-long-suffix-to-force-overflow'",
+        '```',
+        '',
+        '| table | columns |',
+        '| --- | --- |',
+        '| links | id, target_url, expires_at |'
+      ].join('\n')
+    )
+  ]
+}
+
 export const cardError: Card = {
   id: 'c5',
   createdAt: now - 3_000,
@@ -273,6 +343,8 @@ export function seedLive(scene: string, fresh: boolean): LiveState {
       return { ...live, activeCardId: 'c3', thinking: true }
     case 'followup':
       return { ...live, cards: [cardAbout, cardLimiter], activeCardId: 'c2' }
+    case 'many':
+      return { ...live, cards: [cardAbout, cardLimiter, cardSeven], activeCardId: 'c6' }
     case 'error':
       return {
         ...live,
@@ -347,10 +419,110 @@ export function seedSessions(): Session[] {
     utterances: utterances
       .slice(0, 10)
       .map((u) => ({ ...u, startedAt: u.startedAt - ago, endedAt: u.endedAt - ago })),
-    cards: [cardAbout, cardLimiter],
+    cards: [cardAbout, cardLimiter, cardSeven],
     summary: '',
     recap: i === 0 ? recap : undefined
   }))
 }
 
 export const demoRecap = recap
+
+export const demoProfile = [
+  'Snapshot',
+  'Priya Raman, senior backend engineer, 6 years, Bengaluru. Payments infrastructure, most recently at Ledgerly.',
+  '',
+  'Experience',
+  '- Ledgerly (2023 to now): led the move of settlement from a nightly batch to an event-driven pipeline, under 2 minutes, failed payouts down 40%.',
+  '- Shopwise (2020 to 2023): search APIs, p95 latency from 900 ms to 210 ms.',
+  '',
+  'Projects and stories',
+  '- Settlement rewrite: nightly batch kept missing cut-offs; I designed the event pipeline on Kafka; payouts now settle in under 2 minutes.',
+  '- Idempotency keys: pushed back on launching payouts without them; 0.4% of staging payouts retried; we delayed one week (check: launch date).',
+  '',
+  'Skills',
+  '- Go, TypeScript, Postgres, Redis, Kafka',
+  '',
+  'Motivation and preferences',
+  '- Wants an API platform used by thousands of developers. Notice period 60 days.',
+  '',
+  'How I speak',
+  '- Short, concrete sentences with numbers; starts with the result.'
+].join('\n')
+
+const LONG_TOKEN =
+  'https://example.com/careers/senior-backend-engineer/applications/2026/very-long-tracking-url?utm_source=linkedin&utm_medium=social&utm_campaign=hiring-sprint-q4-emea'
+export const stressText = {
+  title:
+    'Northwind Analytics International Holdings · Senior Principal Backend and Platform Engineering Lead (Payments Infrastructure) · Hiring manager round with the VP of Engineering',
+  token: LONG_TOKEN,
+  message: `Call audio stopped because the capture helper exited unexpectedly (code 69, ${LONG_TOKEN}). Reconnecting automatically, this can take up to thirty seconds.`,
+  error: `Vertex rejected the request: PERMISSION_DENIED on projects/sidekick-dev-4821/locations/global/publishers/google/models/gemini-3.5-flash:streamGenerateContent. ${LONG_TOKEN}`
+}
+
+/** Stress variants of the seeded state (?stress=1). */
+export function stressLive(live: LiveState): LiveState {
+  if (live.session !== 'live') return live
+  const long: CardSection = {
+    id: 'st1',
+    prompt: `Walk me through ${stressText.title} and how you would handle it`,
+    say: `I'd start from ${LONG_TOKEN} and then explain the settlement pipeline end to end, because the numbers in that document drive every trade-off.`,
+    points: pts([
+      [`Unbroken token: ${'Supercalifragilistic'.repeat(4)}`, false],
+      [
+        'A perfectly ordinary point that should wrap onto a second line when the card is narrow, with enough words to need it',
+        true
+      ]
+    ]),
+    detail: [
+      '| region | sync interval | overshoot bound | notes about the trade-off we accepted |',
+      '| --- | --- | --- | --- |',
+      '| eu-west | 1 s | 300 requests | acceptable for a public API, revisit when we add a fourth region |',
+      '',
+      '```ts',
+      'const reallyLongIdentifierNameForOvershootBound = regionsCount * ratePerSecondPerRegion * syncIntervalSeconds * safetyFactor',
+      '```',
+      '',
+      LONG_TOKEN
+    ].join('\n')
+  }
+  const card: Card = { id: 'cst', createdAt: now, source: 'auto', status: 'done', sections: [long] }
+  const them = (t: string, i: number): Utterance => ({
+    id: `ux${i}`,
+    speaker: i % 2 ? 'you' : 'them',
+    text: t,
+    startedAt: now - 30_000 + i * 1000,
+    endedAt: now - 29_000 + i * 1000
+  })
+  return {
+    ...live,
+    title: stressText.title,
+    utterances: [
+      ...live.utterances,
+      them(`Here is the posting: ${LONG_TOKEN}`, 0),
+      them(`pasted:${'x'.repeat(120)}`, 1)
+    ],
+    cards: [...live.cards, card],
+    activeCardId: 'cst',
+    queuedCardId: null,
+    audio: { ...live.audio, system: 'error', message: stressText.message }
+  }
+}
+
+export function stressSessions(): Session[] {
+  const base = seedSessions()
+  return Array.from({ length: 30 }, (_, i) => ({
+    ...base[i % base.length],
+    id: `st-${i}`,
+    title: i % 3 === 0 ? stressText.title : `${base[i % base.length].title} #${i}`,
+    startedAt: now - i * 86_400_000,
+    endedAt: now - i * 86_400_000 + 40 * MIN
+  }))
+}
+
+export const stressFiles = Array.from({ length: 12 }, (_, i) => ({
+  id: `sf${i}`,
+  name: `Priya_Raman_Staff_Engineer_Resume_and_Portfolio_Final_v${i}_REVISED_for_Northwind.pdf`,
+  mimeType: 'application/pdf',
+  path: `/demo/f${i}.pdf`,
+  bytes: 182_400 * (i + 1)
+}))

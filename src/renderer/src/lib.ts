@@ -118,6 +118,8 @@ export const PRESETS: { value: SessionPreset; label: string }[] = [
 export const presetLabel = (p: SessionPreset): string =>
   PRESETS.find((x) => x.value === p)?.label ?? p
 
+export const wordCount = (t: string): number => t.trim().split(/\s+/).filter(Boolean).length
+
 export function clock(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000))
   const h = Math.floor(s / 3600)

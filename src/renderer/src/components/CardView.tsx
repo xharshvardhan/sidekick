@@ -1,4 +1,11 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import {
+  Fragment,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode
+} from 'react'
 import { Check, ChevronRight, CircleAlert } from 'lucide-react'
 import { Markdown } from '@openai/apps-sdk-ui/components/Markdown'
 import { ShimmerText } from '@openai/apps-sdk-ui/components/ShimmerText'
@@ -18,14 +25,18 @@ const px = (n: number, scale: number): string => `${(n * scale).toFixed(2)}px`
 export function CardView({
   card,
   scale = 1,
-  detailOpen = false
+  detailOpen = false,
+  compact = false
 }: {
   card: Card
   scale?: number
   /** Show detail fully expanded (the Live page has room for it). */
   detailOpen?: boolean
+  /** Overlay: older sections hide behind one "N earlier" line instead of one row each. */
+  compact?: boolean
 }): ReactNode {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const [showOlder, setShowOlder] = useState(false)
   const streaming = card.status === 'streaming'
   const sections = card.sections
   const newest = sections[sections.length - 1]
@@ -43,37 +54,58 @@ export function CardView({
       {ordered.map((s, i) => {
         const index = sections.length - 1 - i
         const isNewest = i === 0
-        const open = isNewest || expanded[s.id] || (i === 1 && !sayDone)
+        const hidden = compact && i > 0 && !showOlder
+        const open = isNewest || expanded[s.id] || (!compact && i === 1 && !sayDone)
         const label = index === 0 ? KIND[card.source] : 'Follow-up'
+        const toggle =
+          compact && i === 1 ? (
+            <button
+              onClick={() => setShowOlder(!showOlder)}
+              aria-expanded={showOlder}
+              className="no-drag mt-3 flex w-full items-center gap-1.5 border-t border-subtle pt-2.5 text-left font-medium text-tertiary hover:text-secondary"
+              style={{ fontSize: px(12, scale) }}
+            >
+              <ChevronRight className={`size-3.5 shrink-0 ${showOlder ? 'rotate-90' : ''}`} />
+              {sections.length - 1} earlier
+            </button>
+          ) : null
+        if (hidden) return toggle ? <Fragment key={s.id}>{toggle}</Fragment> : null
         if (!open)
           return (
-            <button
-              key={s.id}
-              onClick={() => setExpanded({ ...expanded, [s.id]: true })}
-              className="no-drag mt-3 flex w-full items-center gap-1.5 border-t border-subtle pt-2.5 text-left text-tertiary hover:text-secondary"
-              style={{ fontSize: px(12.5, scale) }}
-            >
-              <ChevronRight className="size-3.5 shrink-0" />
-              <span
-                className="shrink-0 font-semibold tracking-wide uppercase"
-                style={{ fontSize: px(10.5, scale) }}
+            <Fragment key={s.id}>
+              {toggle}
+              <button
+                onClick={() => setExpanded({ ...expanded, [s.id]: true })}
+                className="no-drag mt-3 flex w-full items-center gap-1.5 border-t border-subtle pt-2.5 text-left text-tertiary hover:text-secondary"
+                style={{ fontSize: px(12.5, scale) }}
               >
-                {label}
-              </span>
-              <span className="truncate">{s.prompt}</span>
-            </button>
+                <ChevronRight className="size-3.5 shrink-0" />
+                <span
+                  className="shrink-0 font-semibold tracking-wide uppercase"
+                  style={{ fontSize: px(10.5, scale) }}
+                >
+                  {label}
+                </span>
+                <span className="min-w-0 truncate">{s.prompt}</span>
+              </button>
+            </Fragment>
           )
         return (
-          <div key={s.id} className={isNewest ? '' : 'mt-3 border-t border-subtle pt-3'}>
-            <SectionBody
-              section={s}
-              label={label}
-              scale={scale}
-              streaming={isNewest && streaming}
-              detailOpen={detailOpen}
-              onCollapse={isNewest ? undefined : () => setExpanded({ ...expanded, [s.id]: false })}
-            />
-          </div>
+          <Fragment key={s.id}>
+            {toggle}
+            <div className={isNewest ? '' : 'mt-3 border-t border-subtle pt-3'}>
+              <SectionBody
+                section={s}
+                label={label}
+                scale={scale}
+                streaming={isNewest && streaming}
+                detailOpen={detailOpen}
+                onCollapse={
+                  isNewest ? undefined : () => setExpanded({ ...expanded, [s.id]: false })
+                }
+              />
+            </div>
+          </Fragment>
         )
       })}
       {card.status === 'error' && (
@@ -119,7 +151,7 @@ function SectionBody({
         {prompt && (
           <>
             <span aria-hidden>·</span>
-            <span className="truncate font-medium" style={{ fontSize: px(12, scale) }}>
+            <span className="min-w-0 truncate font-medium" style={{ fontSize: px(12, scale) }}>
               {prompt}
             </span>
           </>

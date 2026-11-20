@@ -54,6 +54,8 @@
     font-family: var(--font-sans);
     background: var(--color-surface);
     overflow: hidden;
+    /* Long URLs and ids wrap instead of spilling out of cards, bubbles and toasts. */
+    overflow-wrap: anywhere;
     user-select: none;
     cursor: default;
   }
@@ -119,6 +121,10 @@
   white-space: pre-wrap !important;
   overflow-wrap: anywhere;
 }
+.card-md pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
 .card-md > * + * {
   margin-top: 0.5em;
 }
@@ -135,4 +141,14 @@
   margin-top: 0 !important;
   margin-bottom: 0 !important;
   line-height: 1.5 !important;
+}
+/* Wide tables scroll sideways instead of breaking words letter by letter. */
+.card-md table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.card-md th,
+.card-md td {
+  overflow-wrap: normal;
 }

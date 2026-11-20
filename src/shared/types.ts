@@ -50,13 +50,23 @@ export interface BriefFile {
   bytes: number
 }
 
+/** One labelled answer from the start form ("Company" → "Northwind"). The form decides the labels per preset. */
+export interface BriefDetail {
+  label: string
+  value: string
+}
+
 /** Context the user gives before a call. */
 export interface Brief {
   title: string
   preset: SessionPreset
-  notes: string // free text: role, company, goals, things to remember
+  notes: string // free text: anything else to remember
   files: BriefFile[]
+  details?: BriefDetail[] // structured answers (company, role, job description, your angle…); empty values are dropped
 }
+
+/** Where a profile draft comes from: picked files (resume), a past session, or pasted text (a transcript, a bio). */
+export type ProfileSource = { kind: 'files' } | { kind: 'session'; id: string } | { kind: 'text'; text: string }
 
 export type SessionState = 'idle' | 'live' | 'paused' | 'ended'
 
@@ -165,6 +175,9 @@ export interface Api {
   'session:delete': (id: string) => void
   'session:recap': (id: string) => Recap // generate (or return cached) recap
   'brief:pickFiles': () => BriefFile[] // opens a file dialog, copies files into app data
+  // Reads the source and returns a new "About me" text: the current profile merged with what was learned.
+  // Does not save; the window shows it for review and saves through settings:set. '' if the dialog was cancelled.
+  'profile:draft': (source: ProfileSource) => string
   'cue:ask': (question: string) => void // typed question, or '' for "help me now"
   'cue:screen': () => void
   'cue:deeper': () => void

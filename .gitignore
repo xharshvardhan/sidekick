@@ -6,3 +6,6 @@ out
 resources/bin/
 .DS_Store
 shots/
+*.wav
+*.pcm
+data/

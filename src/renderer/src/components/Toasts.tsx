@@ -21,7 +21,7 @@ export function Toasts(): ReactNode {
           ) : (
             <Info className="mt-0.5 size-4 shrink-0 text-secondary" />
           )}
-          <p className="selectable flex-1">{t.text}</p>
+          <p className="selectable max-h-[40vh] min-w-0 flex-1 overflow-y-auto">{t.text}</p>
           <button
             onClick={() => dismiss(t.id)}
             aria-label="Dismiss"

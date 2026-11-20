@@ -52,12 +52,12 @@ function LiveSession({ live }: { live: LiveState }): ReactNode {
     <div className="flex h-full min-w-0 flex-col">
       <header className="drag flex h-[52px] shrink-0 items-center gap-3 border-b border-subtle px-5">
         <LiveDot paused={paused} />
-        <h1 className="min-w-0 truncate heading-xs">{live.title}</h1>
-        <span className="text-sm text-secondary tabular-nums">
+        <h1 className="no-drag min-w-0 truncate heading-xs">{live.title}</h1>
+        <span className="text-sm whitespace-nowrap text-secondary tabular-nums">
           {live.startedAt ? clock(now - live.startedAt) : ''}
         </span>
         {paused && <Badge color="warning">Paused</Badge>}
-        <div className="ml-auto flex items-center gap-1.5 text-sm text-secondary">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5 text-sm whitespace-nowrap text-secondary">
           {live.thinking ? (
             <ShimmerText as="span">Thinking…</ShimmerText>
           ) : paused ? (

@@ -7,7 +7,7 @@ import { useHotkey } from '../lib'
 export function Kbd({ children }: { children: string }): ReactNode {
   if (!children) return null
   return (
-    <kbd className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-xs border border-default bg-surface-secondary px-1 font-sans text-[11px] leading-none font-medium tracking-wide text-secondary">
+    <kbd className="inline-flex h-[18px] min-w-[18px] shrink-0 items-center whitespace-nowrap justify-center rounded-xs border border-default bg-surface-secondary px-1 font-sans text-[11px] leading-none font-medium tracking-wide text-secondary">
       {children}
     </kbd>
   )
@@ -17,9 +17,13 @@ export function Kbd({ children }: { children: string }): ReactNode {
 export function TipLabel({ label, hotkey }: { label: string; hotkey?: HotkeyId }): ReactNode {
   const keys = useHotkey(hotkey ?? 'ask')
   return (
-    <span className="flex items-center gap-2 whitespace-nowrap">
-      {label}
-      {hotkey && <Kbd>{keys}</Kbd>}
+    <span className="flex items-center gap-2">
+      <span>{label}</span>
+      {hotkey && (
+        <span className="shrink-0">
+          <Kbd>{keys}</Kbd>
+        </span>
+      )}
     </span>
   )
 }
@@ -39,7 +43,7 @@ export function Tip({
   return (
     <Tooltip
       content={typeof label === 'string' ? <TipLabel label={label} hotkey={hotkey} /> : label}
-      maxWidth={260}
+      maxWidth={300}
       side={side}
     >
       <span className="inline-flex no-drag">{children}</span>
@@ -164,8 +168,11 @@ export function Page({
         <div
           className={`mx-auto flex h-full items-center gap-3 px-8 ${wide ? 'max-w-5xl' : 'max-w-3xl'}`}
         >
-          <h1 className="min-w-0 flex-1 truncate heading-sm">{title}</h1>
-          {subtitle && <div className="text-sm text-secondary">{subtitle}</div>}
+          <h1 className="min-w-0 flex-1 heading-sm">
+            {/* no-drag only over the text, so the native tooltip for a truncated title can show */}
+            <span className="no-drag inline-block max-w-full truncate align-bottom">{title}</span>
+          </h1>
+          {subtitle && <div className="text-sm whitespace-nowrap text-secondary">{subtitle}</div>}
           {actions && <div className="no-drag flex items-center gap-2">{actions}</div>}
         </div>
       </header>

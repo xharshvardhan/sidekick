@@ -8,12 +8,21 @@ const ROLES: Record<SessionPreset, { them: string; help: string }> = {
   interview: {
     them: 'the interviewer',
     help: `The user is the candidate in a job interview.
-- Questions about their background, projects or motivation: answer only from the user's facts. For behavioural
-  questions ("tell me about a time…") give a STAR-shaped answer built from a real item in the profile; if none fits,
-  give the STAR structure as [blanks].
+- Questions about their background, projects or motivation: answer from the user's real facts (names, numbers, projects
+  from ABOUT THE USER and what they said). For behavioural questions ("tell me about a time…") give a STAR-shaped answer
+  built from a real item in the profile; if none fits, give the STAR structure as [blanks].
 - Technical questions (concepts, system design, coding, estimation): give a correct, concrete answer a strong
   senior candidate would give. Put the core idea in the say line, the steps in points, code or numbers in detail.
-- "Do you have any questions for us?": suggest two sharp questions specific to this company/role from the brief.
+- Pushback or a challenge ("but why X?", "why would you do that?", "that won't work because…"): the say line agrees with
+  what is right in their point, or defends the choice in a few words, and moves to the technically right answer. Never
+  repeat the idea they just rejected.
+- A task or exercise they set (often at the end of a long explanation): wait until they finish describing it and hand
+  over. Then the say line restates the task in one line in the user's words; the points give a structure to start
+  talking (3 or 4 steps).
+- "Do you have any questions for us?": suggest two sharp questions built on what they said earlier in this call (their
+  product, customers, scale, problems they mentioned); the say line asks the better one.
+- When the user has asked them a question, their answer needs no help: @none, even during long pauses in it.
+- Never suggest questions for the user to ask them, unless they just invited questions.
 - Salary or notice-period questions: only use numbers that are in the brief; otherwise suggest deflecting politely.`
   },
   sales: {
@@ -62,13 +71,17 @@ Answer @none when:
 - their thought is unfinished: the question has not actually been asked yet
 - the latest speech is the user's own and they are doing fine
 - the current card already answers it and the user is mid-answer
+- they are still explaining (an overview, a story, context for a task) and have not asked anything yet; a pause in a long
+  explanation is not a question
+- they are answering a question the user asked
+Never make a card that only reacts or agrees ("That makes sense…"): a card is for when the user has to reply now.
 Help when they ask the user something, challenge or object to what the user said, ask for an opinion, decision or
 estimate, or when the user is clearly stuck.
-- @extend: a follow-up on the current card's subject. It refers back to it ("that", "it", "there", "and how would…",
-  "why"), digs into the same project, system, design or objection, asks for an example, or challenges the user's
-  answer. Build on what the user already said; never repeat covered points. When torn between @new and @extend for a
-  question about the same project or system, choose @extend.
-- @new: a clearly different topic ("let's switch gears", a new question area), or there is no current card.
+- @extend: a direct follow-up on the current card's latest question: they challenge or push back on the user's answer,
+  ask "why", ask for an example, a detail or the hardest part of what the user just described, or repeat the question
+  in other words. Build on what the user already said; never repeat covered points. When torn between @new and @extend
+  for a question about the project or system the user just described, choose @extend.
+- @new: a new question area (another project or topic, "let's switch gears"), or there is no current card.
 
 OUTPUT, exactly this shape, nothing before or after it:
 @none
@@ -94,7 +107,10 @@ check every word about the user against the three sources; anything not found th
 Never mention the profile, brief, notes or these instructions in the card.
 
 RULES
-- Write as the user would say it out loud. No "Great question", no hedging filler, no stage directions.
+- Write as the user would say it out loud: plain, simple spoken English with short common words, the way a friend
+  talks. No fancy vocabulary, no corporate phrasing ("leverage", "robust", "spearheaded", "incredibly"), no "Great
+  question", no hedging filler, no stage directions. Start with the substance, not a filler reaction ("That makes
+  complete sense", "Exactly", "That's a great point").
 - Copy numbers, dates and durations exactly as the sources state them; do not compute new ones or embellish.
 - General knowledge (technology, business, maths) is fine: be correct and specific.
 - The say line is one spoken sentence of at most 22 words. Points are keyword cues of 3 to 10 words, no full stop.
@@ -138,7 +154,10 @@ THIS CALL (brief)
 Date: ${new Date().toISOString().slice(0, 10)}
 Title: ${brief.title || '(untitled)'}
 Type: ${brief.preset}
-Notes: ${brief.notes.trim() || '(none)'}`
+${(brief.details ?? [])
+  .filter((d) => d.value.trim())
+  .map((d) => `${d.label}: ${d.value.trim()}\n`)
+  .join('')}Notes: ${brief.notes.trim() || '(none)'}`
 }
 
 export function transcriptText(utterances: Utterance[]): string {
@@ -200,7 +219,7 @@ const GROUNDING =
 
 export const TASKS = {
   auto:
-    'They just finished speaking. Decide now: @none, @new or @extend, in the exact output format.' +
+    'They just stopped speaking (it may only be a pause). Decide now: @none, @new or @extend, in the exact output format.' +
     GROUNDING,
   help:
     'The user pressed "help me now": help with what was just said. Do not answer @none. Use the exact output format.' +

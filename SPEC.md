@@ -71,8 +71,8 @@ Goal: behave like a sharp friend who knows when to speak up and when to stay qui
    Attach every segment still waiting for its transcript, from either speaker, in time order,
    each preceded by a text label (`You (audio):` / `Them (audio):`), so fast exchanges lose nothing.
 2. If `them` starts speaking again before the answer has shown its first line, cancel and wait for the
-   next `speechEnd`, then run with all pending audio. For long monologues (> 20 s pending) run anyway.
-3. Skip without a model call when the segment is a backchannel: < 1.2 s long while `you` spoke
+   next `speechEnd`, then run with all pending audio (also in long monologues: a pause is not a question).
+3. Skip without a model call when the segment is a backchannel: < 0.7 s long while `you` spoke
    in the last 3 s.
 4. Manual triggers always run: `cue:ask` (typed question, or empty = "help me with what was just
    said"), `cue:screen` (fresh screenshot attached, downscaled to ≤ 1600 px JPEG), `cue:deeper`
@@ -106,7 +106,7 @@ said (do not repeat covered points; for a follow-up, build on their answer).
 
 **How cards behave** (so the user's eyes never have to hunt)
 - The newest section's `say` line is always the first line of the card. Streaming only appends.
-- `@extend`: add a section. The overlay shows the newest section on top and older sections collapsed
+- `@extend`: add a section (at most 3 per card; a fourth follow-up starts a new card). The overlay shows the newest section on top and older sections collapsed
   to their `prompt` line *below* it; the previous section collapses only once the new `say` line has
   finished streaming.
 - `@new` goes to `queuedCardId` (not shown as the active card) when any of these hold: the user is

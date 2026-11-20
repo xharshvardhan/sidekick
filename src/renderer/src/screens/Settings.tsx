@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Check, CircleAlert } from 'lucide-react'
+import { Check, CircleAlert, FileUp, ClipboardPaste } from 'lucide-react'
 import { Button } from '@openai/apps-sdk-ui/components/Button'
 import { Input } from '@openai/apps-sdk-ui/components/Input'
 import { SegmentedControl } from '@openai/apps-sdk-ui/components/SegmentedControl'
@@ -10,8 +10,8 @@ import { Textarea } from '@openai/apps-sdk-ui/components/Textarea'
 import type { DeepPartial, Hotkey, Permissions, Settings as SettingsT } from '../../../shared/types'
 import { sk } from '../bridge'
 import { Kbd, LevelMeter, Page, Panel } from '../components/ui'
-import { go, keycaps, toAccelerator } from '../lib'
-import { errText, useStore } from '../store'
+import { go, keycaps, toAccelerator, wordCount } from '../lib'
+import { errText, learnProfile, useStore } from '../store'
 
 /** Local draft that saves after the user pauses typing (and on unmount). */
 function useDraft<T>(value: T, save: (v: T) => void, delay = 600): [T, (v: T) => void] {
@@ -87,13 +87,13 @@ function SettingsForm({ s }: { s: SettingsT }): ReactNode {
   const save = useStore((st) => st.saveSettings)
   const set = (patch: DeepPartial<SettingsT>): void => void save(patch)
   return (
-    <div className="grid gap-6">
+    <div className="grid grid-cols-1 gap-6">
       <Group
-        title="Profile"
+        title="About me"
         bare
-        hint="Used in every session so answers sound like you. Paste your resume summary, role, and how you like to talk."
+        hint="Used in every session so answers sound like you. Sidekick only uses facts that are written here."
       >
-        <DraftTextarea value={s.profile} onSave={(profile) => set({ profile })} />
+        <AboutMe profile={s.profile} onSave={(profile) => set({ profile })} />
       </Group>
 
       <Group title="Answers">
@@ -311,6 +311,127 @@ function DraftInput({
   )
 }
 
+/** The About-me text. A new draft (from a resume, pasted text or a call) replaces it only after review. */
+function AboutMe({ profile, onSave }: { profile: string; onSave: (v: string) => void }): ReactNode {
+  const draft = useStore((s) => s.profileDraft)
+  const setDraft = (profileDraft: string | null): void => useStore.setState({ profileDraft })
+  const [busy, setBusy] = useState<'files' | 'text' | null>(null)
+  const [error, setError] = useState('')
+  const [pasting, setPasting] = useState(false)
+  const [pasted, setPasted] = useState('')
+
+  async function learn(kind: 'files' | 'text'): Promise<void> {
+    setBusy(kind)
+    setError('')
+    try {
+      if (await learnProfile(kind === 'files' ? { kind } : { kind, text: pasted }))
+        setPasting(false)
+    } catch (e) {
+      setError(`Couldn't build the profile: ${errText(e)}`)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  if (draft !== null) {
+    const before = wordCount(profile)
+    return (
+      <div className="grid grid-cols-1 gap-3">
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-default bg-surface-secondary px-3.5 py-2.5">
+          <p className="min-w-0 flex-1 text-sm">
+            <span className="font-medium">Draft, not saved yet.</span>{' '}
+            <span className="text-secondary">
+              {before} → {wordCount(draft)} words. Read it, fix anything wrong, then save. Items
+              marked (check) need your eye.
+            </span>
+          </p>
+          <Button color="secondary" variant="ghost" size="sm" onClick={() => setDraft(null)}>
+            Discard
+          </Button>
+          <Button
+            color="primary"
+            size="sm"
+            onClick={() => {
+              onSave(draft)
+              setDraft(null)
+            }}
+          >
+            Save
+          </Button>
+        </div>
+        <Textarea
+          rows={12}
+          autoResize
+          maxRows={24}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          aria-label="About me draft"
+        />
+      </div>
+    )
+  }
+  return (
+    <div className="grid grid-cols-1 gap-3">
+      <DraftTextarea value={profile} onSave={onSave} />
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          color="secondary"
+          variant="outline"
+          size="sm"
+          onClick={() => learn('files')}
+          loading={busy === 'files'}
+          disabled={busy !== null}
+        >
+          <FileUp />
+          Import resume
+        </Button>
+        <Button
+          color="secondary"
+          variant="outline"
+          size="sm"
+          onClick={() => setPasting(!pasting)}
+          disabled={busy !== null}
+          selected={pasting}
+        >
+          <ClipboardPaste />
+          Paste text
+        </Button>
+        <span className="text-xs text-tertiary">
+          {busy
+            ? 'Reading it. This takes up to 20 seconds.'
+            : 'You review the result before it is saved.'}
+        </span>
+      </div>
+      {pasting && (
+        <div className="grid grid-cols-1 gap-2">
+          <Textarea
+            rows={6}
+            value={pasted}
+            onChange={(e) => setPasted(e.target.value)}
+            placeholder="Paste a resume, a bio, or a transcript of you talking."
+            aria-label="Text to learn from"
+          />
+          <div className="flex justify-end gap-2">
+            <Button color="secondary" variant="ghost" size="sm" onClick={() => setPasting(false)}>
+              Cancel
+            </Button>
+            <Button
+              color="primary"
+              size="sm"
+              onClick={() => learn('text')}
+              loading={busy === 'text'}
+              disabled={!pasted.trim() || busy !== null}
+            >
+              Build profile
+            </Button>
+          </div>
+        </div>
+      )}
+      {error && <p className="text-sm text-danger">{error}</p>}
+    </div>
+  )
+}
+
 function DraftTextarea({
   value,
   onSave
@@ -388,7 +509,7 @@ function MeterTest(): ReactNode {
         </Button>
       </div>
       {on && (
-        <div className="mt-3 grid gap-2">
+        <div className="mt-3 grid grid-cols-1 gap-2">
           <LevelMeter label="You" level={levels.you} />
           <LevelMeter label="Them" level={levels.them} />
         </div>
@@ -467,12 +588,12 @@ function VertexTest(): ReactNode {
       <div className="min-w-0 flex-1 text-sm">
         {result ? (
           <span
-            className={`flex items-center gap-1.5 ${result.ok ? 'text-success' : 'text-danger'}`}
+            className={`flex items-start gap-1.5 ${result.ok ? 'text-success' : 'text-danger'}`}
           >
             {result.ok ? (
-              <Check className="size-4 shrink-0" />
+              <Check className="mt-0.5 size-4 shrink-0" />
             ) : (
-              <CircleAlert className="size-4 shrink-0" />
+              <CircleAlert className="mt-0.5 size-4 shrink-0" />
             )}
             <span className="selectable">{result.message}</span>
           </span>

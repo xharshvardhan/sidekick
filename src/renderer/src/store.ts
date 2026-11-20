@@ -1,5 +1,13 @@
 import { create } from 'zustand'
-import type { Api, DeepPartial, Events, LiveState, Settings, WindowMode } from '../../shared/types'
+import type {
+  Api,
+  DeepPartial,
+  Events,
+  LiveState,
+  ProfileSource,
+  Settings,
+  WindowMode
+} from '../../shared/types'
 import { sk } from './bridge'
 
 export interface Toast {
@@ -14,6 +22,7 @@ interface Store {
   mode: WindowMode
   levels: Events['levels']
   toasts: Toast[]
+  profileDraft: string | null // an About-me draft waiting for review in Settings
   savedAt: number // last successful settings save, for the quiet "Saved" note
   toast: (kind: Toast['kind'], text: string) => void
   dismiss: (id: number) => void
@@ -28,6 +37,7 @@ export const useStore = create<Store>((set, get) => ({
   mode: 'app',
   levels: { you: 0, them: 0 },
   toasts: [],
+  profileDraft: null,
   savedAt: 0,
   toast: (kind, text) => {
     const id = ++toastId
@@ -49,6 +59,14 @@ export function errText(e: unknown): string {
   return e instanceof Error
     ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
     : String(e)
+}
+
+/** Ask for a new About-me draft and park it for review in Settings. False if the file dialog was cancelled. */
+export async function learnProfile(source: ProfileSource): Promise<boolean> {
+  const draft = await sk().invoke('profile:draft', source)
+  if (!draft) return false
+  useStore.setState({ profileDraft: draft })
+  return true
 }
 
 /** Fire-and-forget invoke for buttons: any failure becomes an error toast in this window. */

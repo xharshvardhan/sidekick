@@ -25,3 +25,13 @@ export function sk(): Bridge {
   if (!bridge) throw new Error('Sidekick bridge is not available')
   return bridge
 }
+
+/** Demo-only: open a session page on this tab ('cards'). */
+export const demoTab = params.get('tab') ?? ''
+/** Demo-only: start with an empty About-me profile, or with a draft waiting for review in Settings. */
+export const demoNoProfile = params.has('noprofile')
+export const demoReview = params.has('review')
+export const demoFilled = params.has('filled') // start form pre-filled
+/** Demo-only: swap in long, awkward content (long titles, URLs, tables, 30 sessions) and optionally a long error toast. */
+export const demoStress = params.has('stress')
+export const demoToast = params.has('toast')

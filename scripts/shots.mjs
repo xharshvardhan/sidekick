@@ -42,12 +42,17 @@ async function buildIfNeeded() {
 const APP = [
   ['setup', 'demo=empty', '/setup'],
   ['home', 'demo=1&scene=none', '/home'],
+  ['home-noprofile', 'demo=1&scene=none&noprofile=1', '/home'],
+  ['home-filled', 'demo=1&scene=none&filled=1', '/home'],
+  ['settings-review', 'demo=1&scene=none&review=1', '/settings'],
   ['live', 'demo=1&scene=queued', '/live'],
+  ['live-many', 'demo=1&scene=many', '/live'],
   ['history', 'demo=1&scene=none', '/history'],
+  ['session-cards', 'demo=1&scene=none&tab=cards', '/session/past-1'],
   ['session-recap', 'demo=1&scene=none', '/session/past-1'],
   ['settings', 'demo=1&scene=none', '/settings']
 ]
-const OVERLAY = ['none', 'idle', 'streaming', 'followup', 'queued', 'error']
+const OVERLAY = ['none', 'idle', 'streaming', 'followup', 'queued', 'error', 'many']
 
 const jobs = []
 for (const theme of ['light', 'dark'])
