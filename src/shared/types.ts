@@ -22,6 +22,7 @@ export interface CardSection {
   say: string // one sentence the user can say right now
   points: CardPoint[] // short talking points, in speaking order
   detail: string // optional markdown: code, numbers, longer explanation
+  deepening?: boolean // the deep model is writing `detail` right now
 }
 
 export interface CardPoint {
@@ -34,6 +35,7 @@ export interface CardPoint {
 export interface Card {
   id: string
   createdAt: number
+  updatedAt?: number // last time any section changed (default createdAt); a code card holds for a while after
   source: CardSource
   status: CardStatus
   sections: CardSection[] // newest last

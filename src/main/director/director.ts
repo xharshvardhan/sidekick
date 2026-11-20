@@ -63,6 +63,8 @@ interface Gen {
 
 export class Director {
   private gens = new Map<TriggerKind, Gen>()
+  /** running deep passes, by section id */
+  private deeps = new Map<string, { ctrl: AbortController; cardId: string }>()
   private brief: Brief | null = null
   private briefParts: Part[] = []
 
@@ -121,6 +123,7 @@ export class Director {
 
   cancelAll(): void {
     for (const g of this.gens.values()) g.ctrl.abort('stopped')
+    for (const d of this.deeps.values()) d.ctrl.abort('stopped')
   }
 
   private start(kind: TriggerKind): Gen {
@@ -162,9 +165,11 @@ export class Director {
     const shownCard = deck.current // what the model sees as CURRENT CARD; @extend refers to it
     let made: CueKind = 'none'
     let target = null as { card: Card; section: CardSection } | null
+    let deep = false
 
     const apply = (text: string, done: boolean): void => {
       const p = parseCue(text, done)
+      deep = p.deep
       if (p.kind === 'none' || !p.say) return
       if (!target) {
         const a = this.d.activity()
@@ -174,8 +179,13 @@ export class Director {
         rec.cardId = target.card.id
         gen.shown = true
         rec.firstLineAt = this.now()
+        // a manual trigger takes over: deep passes on other cards are no longer wanted
+        if (manual)
+          for (const d of this.deeps.values())
+            if (d.cardId !== target.card.id) d.ctrl.abort('replaced by a manual trigger')
       }
       deck.fill(target.section, p)
+      target.card.updatedAt = this.now()
       rec.say = p.say
       rec.prompt = p.prompt
       rec.points = p.points
@@ -208,6 +218,9 @@ export class Director {
       apply(text, true)
       rec.outcome = made
       if (target) target.card.status = 'done'
+      // the cue asked for depth (an architecture, a derivation, a design, code): the deep model adds it
+      if (target && deep && !deck.deepDetail.has(target.section.id))
+        void this.deepen(target.card, target.section, extra.image)
       if (!target && manual) this.d.toast('info', 'Nothing useful to add right now.')
     } catch (e) {
       if (gen.ctrl.signal.aborted || isAbort(e)) {
@@ -229,20 +242,28 @@ export class Director {
     }
   }
 
-  /** Expand the active card's newest section with the deep model. */
+  /** Manual "go deeper": the active card's newest section. One deep pass per section; a second press is a no-op. */
   async deeper(): Promise<void> {
     const card = this.d.deck.active
     const section = card?.sections[card.sections.length - 1]
-    if (!this.brief || !card || !section) {
-      this.d.toast('info', 'No card to expand yet.')
-      return
-    }
-    const gen = this.start('deeper')
-    const rec: RunRecord = { kind: 'deeper', startedAt: this.now() }
+    if (!this.brief || !card || !section) return this.d.toast('info', 'No card to expand yet.')
+    if (this.deeps.has(section.id)) return this.d.toast('info', 'Already adding detail to this card.')
+    if (this.d.deck.deepDetail.has(section.id))
+      return this.d.toast('info', 'This card already has the in-depth detail.')
+    return this.deepen(card, section)
+  }
+
+  /** Write a section's detail with the deep model. Runs beside cues (never blocks or cancels them); the cue
+   *  still streaming into this section no longer touches its detail. Cancelled or failed: the old detail returns. */
+  private async deepen(card: Card, section: CardSection, image?: string): Promise<void> {
+    if (!this.brief) return
+    const ctrl = new AbortController()
+    this.deeps.set(section.id, { ctrl, cardId: card.id })
+    const rec: RunRecord = { kind: 'deeper', startedAt: this.now(), cardId: card.id }
     const s = this.d.settings()
     const before = section.detail
     this.d.deck.deepDetail.add(section.id)
-    card.status = 'streaming'
+    section.deepening = true
     this.d.changed()
     try {
       const ctx = this.d.context()
@@ -257,32 +278,40 @@ export class Director {
             tail: ctx.tail,
             audio: [],
             card,
-            task: deeperTask(card)
+            task: deeperTask(section),
+            image // a screen card: the deep model needs the problem itself, not just the card
           }),
-          signal: gen.ctrl.signal,
-          maxTokens: 2000
+          signal: ctrl.signal,
+          maxTokens: 4000
         },
         (full) => {
-          if (gen.ctrl.signal.aborted) return
-          if (!rec.firstLineAt) rec.firstLineAt = this.now()
+          if (ctrl.signal.aborted) return
+          rec.firstLineAt ??= this.now()
           section.detail = full.trim()
+          card.updatedAt = this.now()
           this.d.changed()
         }
       )
+      if (ctrl.signal.aborted) throw new DOMException('aborted', 'AbortError')
       rec.outcome = 'deeper'
-      card.status = 'done'
+      rec.raw = section.detail
     } catch (e) {
-      card.status = 'done'
-      if (gen.ctrl.signal.aborted || isAbort(e)) rec.outcome = 'cancelled'
-      else {
-        section.detail = before
-        this.d.deck.deepDetail.delete(section.id)
+      section.detail = before
+      this.d.deck.deepDetail.delete(section.id)
+      if (ctrl.signal.aborted || isAbort(e)) {
+        rec.outcome = 'cancelled'
+        rec.reason = String(ctrl.signal.reason ?? 'aborted')
+      } else {
         rec.outcome = 'error'
         rec.error = errorMessage(e)
-        this.d.toast('error', `Could not expand the card: ${rec.error}`)
+        this.d.toast('error', `Could not add detail: ${rec.error}`)
       }
     } finally {
-      this.finish('deeper', gen, rec)
+      section.deepening = false
+      if (this.deeps.get(section.id)?.ctrl === ctrl) this.deeps.delete(section.id)
+      rec.endedAt = this.now()
+      this.d.changed()
+      this.d.onRun?.(rec)
     }
   }
 }

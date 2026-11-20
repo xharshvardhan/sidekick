@@ -2,7 +2,8 @@
 // Order is strictly most-stable → most-changing so implicit prompt caching applies:
 // system (preset + profile + brief) → brief files → summary → transcript tail → current card → new audio → task.
 import type { Part } from '@google/genai'
-import type { Brief, Card, SessionPreset, Settings, Utterance } from '../../shared/types'
+import type { Brief, Card, CardSection, SessionPreset, Settings, Utterance } from '../../shared/types'
+import { hasCode } from '../../shared/hold'
 
 const ROLES: Record<SessionPreset, { them: string; help: string }> = {
   interview: {
@@ -56,7 +57,7 @@ export function systemPrompt(
   const role = ROLES[brief.preset] ?? ROLES.custom
   const style =
     s.answerStyle === 'brief'
-      ? 'Style: brief. Say line plus 2 points. Add detail only for code or numbers.'
+      ? 'Style: brief. Say line plus 2 points. Add detail only for code or numbers (none with +deep).'
       : 'Style: standard. Say line plus 2 to 4 points. Add detail when code, numbers, a formula or a worked example helps.'
   return `You are Sidekick: a sharp friend sitting next to the user on a live call, whispering what to say next.
 You hear both sides. "Them" is ${role.them}. "You" is the user. The user glances at your card mid-sentence, so
@@ -91,8 +92,19 @@ or:
 - talking point, at most 12 words
 - talking point (2 to 4 points, in the order to say them)
 ? what they asked, at most 10 words
++deep           (only when the question needs depth, see DEPTH)
 ##
 optional detail in markdown (code block, numbers, worked example). Omit the ## line when there is no detail.
+
+DEPTH
+Add the line +deep after the ? line for any technical question about how something works inside or why: explain or
+walk through an architecture, model, algorithm, protocol or system ("how does X work", "explain X", "the difference
+between X and Y", "walk me through the math"), derive or prove something, compare approaches in depth, design a
+system, draw or diagram anything, or a coding problem. A stronger model then adds a diagram or the code under your
+card, so with +deep write no ## detail: your say line and points are the instant spoken answer. A coding problem
+always gets +deep and never code from you: the say line is the approach, the points the steps.
+Never +deep for: background, behavioural or motivation questions, "do you know X?", yes/no or one-fact questions,
+logistics, salary, questions for them, or a follow-up the current card already covers.
 
 THE HARD RULE: never invent facts about the user
 Facts about the user have exactly three sources: ABOUT THE USER, THIS CALL, and what "You" said in the transcript or
@@ -113,9 +125,12 @@ RULES
   complete sense", "Exactly", "That's a great point").
 - Copy numbers, dates and durations exactly as the sources state them; do not compute new ones or embellish.
 - General knowledge (technology, business, maths) is fine: be correct and specific.
+- No LaTeX or $...$ math (it is not rendered): write formulas as plain text or inline code, e.g. \`softmax(QKᵀ/√d)·V\`.
 - The say line is one spoken sentence of at most 22 words. Points are keyword cues of 3 to 10 words, no full stop.
 - Always end with the "? what they asked" line after the points.
 - Read what the user has already said since the question. Points marked [covered] are done: do not repeat them.
+- Never copy code or detail from the CURRENT CARD into a new card or section: it is still on the user's screen. Refer
+  to it instead ("same code as above, the loop is O(n)") and add only what is new.
 - Reply in the language they are speaking${s.language ? ` (expected: ${s.language})` : ''}.
 - ${style}
 
@@ -138,6 +153,15 @@ Them: "Tell me about a time you disagreed with your manager." (nothing about thi
 - [Your view vs theirs, and why]
 - [How you resolved it, the outcome]
 ? A time you disagreed with your manager
+
+Them: "How does consistent hashing work?"
+@new
+> Consistent hashing puts servers and keys on one hash ring, so adding a server only moves the keys next to it.
+- Hash servers and keys onto the same ring
+- A key belongs to the next server clockwise
+- Virtual nodes even out the load
+? How consistent hashing works
++deep
 
 Them: "Why did you pick Postgres over Mongo there?" (the user said earlier they built an orders service on Postgres)
 @extend
@@ -169,7 +193,10 @@ export function cardText(card: Card | undefined): string {
   return card.sections
     .map((s) => {
       const pts = s.points.map((p) => `- ${p.text}${p.covered ? ' [covered]' : ''}`).join('\n')
-      return `They asked: ${s.prompt || '(label pending)'}\n> ${s.say}\n${pts}`
+      const detail = s.detail
+        ? `\n[on screen below this: ${hasCode(s.detail) ? 'code' : 'detail'}, ${s.detail.split('\n').length} lines; do not repeat it]`
+        : ''
+      return `They asked: ${s.prompt || '(label pending)'}\n> ${s.say}\n${pts}${detail}`
     })
     .join('\n\n')
 }
@@ -228,20 +255,49 @@ export const TASKS = {
     `The user typed this request to you (they did not say it on the call): "${q}". Answer it for them. Do not answer @none. Use the exact output format.${GROUNDING}`,
   screen:
     'The user attached a screenshot of their screen. Help with what it shows in the context of this call (for a coding ' +
-    'or design problem: the approach in the say line and points, the code in detail). Do not answer @none. Use the exact output format.'
+    'or design problem: the approach in the say line and points, then +deep and no detail: the code is added for you). Do not ' +
+    'answer @none. Use the exact output format.'
 }
 
-/** Deep model: expand one section into a fuller answer. Plain markdown output. */
-export function deeperTask(card: Card): string {
-  const s = card.sections[card.sections.length - 1]
-  return `The user wants more depth on the current card's latest section:
+/** Deep model: the detail under one section, what an expert friend would slide over mid-call. Plain markdown. */
+export function deeperTask(s: CardSection): string {
+  return `The user needs depth on this question right now, mid-call. The card already shows:
 They asked: ${s.prompt}
 > ${s.say}
 ${s.points.map((p) => `- ${p.text}`).join('\n')}
 
-Write the expanded detail in markdown for the user to glance at while talking: a worked example, code, numbers,
-trade-offs or the exact structure to follow. Stay grounded in the profile and brief; never invent facts about the user.
-At most ~200 words plus any code. Output only the markdown, no preamble.`
+Write the detail that goes under that card: what an expert friend would slide over to them. The user glances at it
+while talking, so: markdown only, no preamble, no heading, no restating the card, nothing about the user that is not
+in the sources (never invent their experience).
+
+Architecture, flow, protocol, data structure or system design:
+1. A diagram in a \`\`\`text fenced block: plain ASCII only (boxes [ ], arrows --> | v ^, no Unicode box drawing).
+   It must fit a narrow panel: one column flowing top to bottom, never two columns side by side, every line at most
+   50 characters (count them). Put long labels on their own line instead of widening a box. Show every stage in
+   order, none skipped or merged into "...", including the small ones (residual + norm, masks, scaling).
+   Write the data or tensor shape at each step where it matters (e.g. [B, T, d_model]). Draw a repeated block once
+   as "N x [ ... ]" with its sub-steps inside. Name what flows on each arrow; for attention say what Q, K and V
+   are and where masks apply. When one part feeds another (an encoder's final output into every decoder layer),
+   draw the first part fully, then the second, and name the hand-off where it is used ("K, V = enc_out") instead
+   of drawing a long wire across boxes. For a protocol or state machine, show every state and every transition with
+   its trigger. For a data structure or algorithm, run a tiny concrete example through it
+   (real keys or values at each step). Shapes, labels and formulas must use one convention and agree with each
+   other. Correct and complete beats pretty.
+2. Then 4 to 7 short bullets in the order to say them: the key formula(s) in inline code (e.g.
+   \`softmax(QKᵀ/√d_k)·V\`), the one thing people get wrong, and one trade-off.
+
+Coding problem:
+1. One line: the approach.
+2. The code in a fenced block tagged with the language they asked for (Python if they did not say): correct,
+   complete, runnable, idiomatic, short lines (at most 58 characters where you can).
+3. One line: time and space complexity.
+4. Two bullets: edge cases.
+
+Anything else (a concept, a derivation, a comparison): a short worked example, derivation or comparison table,
+then 4 to 7 bullets as above.
+
+At most about 300 words besides the diagram or code. Correct and specific over broad; no filler. No LaTeX or $...$
+(it is not rendered): formulas in inline code. Check every number, bound and formula before you write it.`
 }
 
 export const SUMMARY_PROMPT = `Fold this call transcript into the running summary. Keep: names, roles, numbers, prices, dates,

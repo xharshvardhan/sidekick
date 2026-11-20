@@ -52,7 +52,7 @@ const APP = [
   ['session-recap', 'demo=1&scene=none', '/session/past-1'],
   ['settings', 'demo=1&scene=none', '/settings']
 ]
-const OVERLAY = ['none', 'idle', 'streaming', 'followup', 'queued', 'error', 'many']
+const OVERLAY = ['none', 'idle', 'streaming', 'followup', 'queued', 'error', 'many', 'deep', 'adding', 'hold']
 
 const jobs = []
 for (const theme of ['light', 'dark'])
@@ -78,6 +78,16 @@ for (const [theme, backdrop] of [
     hash: '/overlay',
     w: 560,
     h: 340
+  })
+
+// Tall: the whole deep card at overlay width, to check that diagrams keep their columns.
+for (const theme of ['light', 'dark'])
+  jobs.push({
+    file: `overlay-deep-tall-${theme}`,
+    query: `demo=1&scene=deep&theme=${theme}&backdrop=${theme}`,
+    hash: '/overlay',
+    w: 560,
+    h: 1100
   })
 
 let consoleProblems = 0

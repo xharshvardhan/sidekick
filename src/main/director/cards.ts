@@ -3,6 +3,7 @@
 import type { Card, CardSection, CardSource, LiveState } from '../../shared/types'
 import type { ParsedCue } from './protocol'
 import { isCovered } from './coverage'
+import { cardHolds } from '../../shared/hold'
 
 export type DeckState = Pick<LiveState, 'cards' | 'activeCardId' | 'queuedCardId' | 'pinned'>
 
@@ -38,11 +39,13 @@ export class Deck {
     return this.queued ?? this.active
   }
 
-  /** Should a brand-new card wait in the queue instead of replacing what the user is reading? */
+  /** Should a brand-new card wait in the queue instead of replacing what the user is reading?
+   *  A holding card (code the user is typing from) keeps it queued until they step to it. */
   shouldQueue(a: UserActivity): boolean {
     const active = this.active
     return (
       this.s.pinned ||
+      cardHolds(active, a.now) ||
       a.youSpeaking ||
       (a.lastYouSpeechAt > 0 && a.now - a.lastYouSpeechAt < QUIET_MS) ||
       (!!active && a.now - active.createdAt < FRESH_MS)

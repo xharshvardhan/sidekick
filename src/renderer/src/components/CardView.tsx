@@ -10,6 +10,7 @@ import { Check, ChevronRight, CircleAlert } from 'lucide-react'
 import { Markdown } from '@openai/apps-sdk-ui/components/Markdown'
 import { ShimmerText } from '@openai/apps-sdk-ui/components/ShimmerText'
 import type { Card, CardSection } from '../../../shared/types'
+import { hasCode } from '../../../shared/hold'
 import { useHotkey } from '../lib'
 
 const KIND: Record<Card['source'], string> = {
@@ -43,6 +44,12 @@ export function CardView({
   // Keep the previous section open until the new `say` line has finished streaming.
   const sayDone = !streaming || !newest || newest.points.length > 0 || newest.detail !== ''
   const ordered = [...sections].reverse() // newest on top, older below
+  // Overlay: a follow-up must not push the code the user is typing from out of sight. When the newest section has
+  // no code of its own, the latest code stays under it (until the earlier sections are opened).
+  const carried =
+    compact && newest && !hasCode(newest.detail) && !showOlder
+      ? ordered.slice(1).find((s) => hasCode(s.detail))
+      : undefined
 
   return (
     <div className="selectable" style={{ fontSize: px(14.5, scale) } as CSSProperties}>
@@ -104,6 +111,26 @@ export function CardView({
                   isNewest ? undefined : () => setExpanded({ ...expanded, [s.id]: false })
                 }
               />
+              {isNewest && carried && (
+                <div className="mt-3">
+                  <div
+                    className="flex items-center gap-1.5 text-tertiary"
+                    style={{ fontSize: px(10.5, scale), lineHeight: px(16, scale) }}
+                  >
+                    <span className="shrink-0 font-semibold tracking-wider uppercase">Code</span>
+                    <span aria-hidden>·</span>
+                    <span className="min-w-0 truncate font-medium" style={{ fontSize: px(12, scale) }}>
+                      from {carried.prompt || 'an earlier answer'}
+                    </span>
+                  </div>
+                  <Detail
+                    markdown={carried.detail.match(/^\s*```[\s\S]*?^\s*```/gm)?.join('\n\n') ?? ''}
+                    open
+                    streaming={false}
+                    scale={scale}
+                  />
+                </div>
+              )}
             </div>
           </Fragment>
         )
@@ -136,9 +163,18 @@ function SectionBody({
   detailOpen: boolean
   onCollapse?: () => void
 }): ReactNode {
-  const { prompt, say, points, detail } = section
+  const { prompt, say, points, detail, deepening } = section
   // Where the soft caret goes: after whatever is currently growing.
-  const caretAt = !streaming ? '' : detail ? 'detail' : points.length ? 'points' : 'say'
+  const caretAt =
+    deepening && detail
+      ? 'detail'
+      : !streaming
+        ? ''
+        : detail
+          ? 'detail'
+          : points.length
+            ? 'points'
+            : 'say'
   return (
     <div>
       {/* The label line is always reserved, so the say line never shifts when the prompt arrives. */}
@@ -185,6 +221,11 @@ function SectionBody({
           ))}
         </ul>
       )}
+      {deepening && !detail && (
+        <div className="mt-2.5 text-tertiary" style={{ fontSize: px(12.5, scale) }}>
+          <ShimmerText as="span">Adding detail…</ShimmerText>
+        </div>
+      )}
       {detail && (
         <Detail
           markdown={detail}
@@ -208,7 +249,9 @@ function Detail({
   streaming: boolean
   scale: number
 }): ReactNode {
-  const [open, setOpen] = useState(startOpen)
+  const [userOpen, setOpen] = useState(false)
+  // code and diagrams are useless clipped to 3 lines: they open fully (the overlay body scrolls)
+  const open = startOpen || userOpen || /^\s*```/m.test(markdown)
   const [overflows, setOverflows] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const deeper = useHotkey('deeper')

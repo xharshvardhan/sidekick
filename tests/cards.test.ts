@@ -5,6 +5,7 @@ import { idleState } from '../src/main/engine'
 import { defaultSettings } from '../src/main/settings'
 import type { Llm } from '../src/main/llm'
 import type { LiveState } from '../src/shared/types'
+import { HOLD_MS, cardHolds, hasCode } from '../src/shared/hold'
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
@@ -272,5 +273,140 @@ describe('card policy (mocked model)', () => {
     await t.auto()
     expect(t.state.activeCardId).toBe(t.state.cards[0].id)
     expect(t.state.queuedCardId).toBeNull()
+  })
+})
+
+const CODE = (say: string): string =>
+  `@new\n> ${say}\n- two pointers from both ends\n? Trapping rain water\n##\n\`\`\`python\ndef trap(h):\n    return 0\n\`\`\`\n`
+const quiet = (now: number): UserActivity => ({ now, youSpeaking: false, lastYouSpeechAt: 0 })
+
+describe('holding cards (code the user is typing from)', () => {
+  it('hasCode: a language or bare fence is code, a ```text diagram is not', () => {
+    expect(hasCode('```python\nx = 1\n```')).toBe(true)
+    expect(hasCode('Approach:\n```\nx = 1\n```')).toBe(true)
+    expect(hasCode('```text\n[A] --> [B]\n```')).toBe(false)
+    expect(hasCode('no fences, `inline` only')).toBe(false)
+  })
+
+  it('a code card blocks auto-promotion; the queued card waits for next-card', async () => {
+    const t = setup([CODE('Two pointers, keep the max on each side.'), NEW('Side question.')])
+    await t.auto()
+    const [code] = t.state.cards
+    code.createdAt -= 60_000
+    code.updatedAt = code.createdAt // not fresh any more: only the hold keeps it
+    await t.auto()
+    const side = t.state.cards[1]
+    expect(t.state.activeCardId).toBe(code.id)
+    expect(t.state.queuedCardId).toBe(side.id)
+    expect(t.deck.tick(quiet(Date.now() + 60_000))).toBe(false) // a minute of silence: still holds
+    t.deck.step(1)
+    expect(t.state.activeCardId).toBe(side.id)
+    expect(t.state.queuedCardId).toBeNull()
+  })
+
+  it('a screen card holds even without code yet', async () => {
+    const t = setup([NEW('Here is the approach.'), NEW('Side question.')])
+    await t.director.screen('')
+    t.state.cards[0].createdAt -= 60_000
+    t.state.cards[0].updatedAt = t.state.cards[0].createdAt
+    await t.auto()
+    expect(t.state.activeCardId).toBe(t.state.cards[0].id)
+    expect(t.deck.tick(quiet(Date.now() + 5_000))).toBe(false)
+  })
+
+  it('the hold expires 10 minutes after the card last changed', async () => {
+    const t = setup([CODE('Two pointers.'), NEW('Later question.')])
+    await t.auto()
+    const code = t.state.cards[0]
+    const updated = code.updatedAt!
+    expect(cardHolds(code, updated + HOLD_MS - 1)).toBe(true)
+    expect(cardHolds(code, updated + HOLD_MS)).toBe(false)
+    code.createdAt -= HOLD_MS + 1000
+    code.updatedAt = code.createdAt
+    await t.auto()
+    expect(t.state.activeCardId).toBe(t.state.cards[1].id) // nothing holds: shown at once
+  })
+
+  it('an expired hold lets a waiting card promote on silence', async () => {
+    const t = setup([CODE('Two pointers.'), NEW('Side question.')])
+    await t.auto()
+    const code = t.state.cards[0]
+    code.createdAt -= 60_000
+    code.updatedAt = code.createdAt
+    await t.auto()
+    expect(t.state.queuedCardId).toBe(t.state.cards[1].id)
+    expect(t.deck.tick(quiet(code.updatedAt + HOLD_MS + 1))).toBe(true)
+    expect(t.state.activeCardId).toBe(t.state.cards[1].id)
+  })
+
+  it('a manual trigger still takes over a holding card at once', async () => {
+    const t = setup([CODE('Two pointers.'), NEW('Asked.')])
+    await t.auto()
+    await t.director.ask('what now?')
+    expect(t.state.activeCardId).toBe(t.state.cards[1].id)
+  })
+})
+
+const DEEP = (say: string): string =>
+  `@new\n> ${say}\n- masked self-attention\n- cross-attention over the encoder\n? Explain the decoder\n+deep\n`
+
+describe('auto deep pass (+deep)', () => {
+  it('runs the deep model on the section once the cue finishes', async () => {
+    const t = setup([DEEP('The decoder predicts one token at a time.'), '```text\n[x] --> [y]\n```'])
+    await t.auto()
+    while (t.runs.length < 2) await sleep(10)
+    const sec = t.state.cards[0].sections[0]
+    expect(t.runs.map((r) => r.outcome)).toEqual(['new', 'deeper'])
+    expect(sec.detail).toBe('```text\n[x] --> [y]\n```')
+    expect(sec.deepening).toBe(false)
+  })
+
+  it('a screen card hands its screenshot to the deep pass', async () => {
+    const t = setup([DEEP('Two pointers.'), 'code'])
+    const seen: unknown[] = []
+    const llm = (t.director as unknown as { d: { llm: () => Llm } }).d.llm()
+    const real = llm.models.generateContentStream.bind(llm.models)
+    llm.models.generateContentStream = ((req: { contents: { parts: unknown[] }[] }) => {
+      seen.push(req.contents[0].parts.some((p) => (p as { inlineData?: unknown }).inlineData))
+      return real(req as never)
+    }) as never
+    await t.director.screen('aW1n')
+    while (t.runs.length < 2) await sleep(10)
+    expect(seen).toEqual([true, true])
+  })
+
+  it('no +deep, no deep pass', async () => {
+    const t = setup([NEW('Hello.'), 'should not be used'])
+    await t.auto()
+    await sleep(100)
+    expect(t.runs.map((r) => r.outcome)).toEqual(['new'])
+  })
+
+  it('does not block the next cue, and a manual trigger cancels it and restores the detail', async () => {
+    const t = setup([
+      DEEP('The decoder predicts one token at a time.'),
+      { text: 'Deep detail that streams slowly for quite a while.', firstChunkMs: 30, chunkMs: 60 },
+      NEW('Next question answered.')
+    ])
+    await t.auto()
+    const sec = t.state.cards[0].sections[0]
+    while (!sec.detail) await sleep(5) // the deep pass is writing
+    expect(sec.deepening).toBe(true)
+    await t.director.ask('help') // a new card while the deep pass runs
+    expect(t.state.cards[1].sections[0].say).toBe('Next question answered.')
+    while (t.runs.length < 3) await sleep(10)
+    const deep = t.runs.find((r) => r.kind === 'deeper')!
+    expect(deep.outcome).toBe('cancelled')
+    expect(sec.detail).toBe('')
+    expect(sec.deepening).toBe(false)
+  })
+
+  it('manual go-deeper on a section that already has deep detail is a no-op with a toast', async () => {
+    const t = setup([DEEP('The decoder.'), 'Deep detail.'])
+    await t.auto()
+    while (t.runs.length < 2) await sleep(10)
+    await t.director.deeper()
+    expect(t.runs).toHaveLength(2)
+    expect(t.toasts.at(-1)).toMatch(/already/i)
   })
 })

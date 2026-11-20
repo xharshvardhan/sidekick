@@ -28,7 +28,9 @@ export function useTheme(pref: Settings['theme'] | undefined): void {
     return () => darkQuery.removeEventListener('change', fn)
   }, [])
   const wanted = forcedTheme ?? (pref && pref !== 'system' ? pref : systemDark ? 'dark' : 'light')
-  useEffect(() => applyDocumentTheme(wanted), [wanted])
+  useEffect(() => {
+    applyDocumentTheme(wanted)
+  }, [wanted])
 }
 
 // ---------- hotkeys ----------

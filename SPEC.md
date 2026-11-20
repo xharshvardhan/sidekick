@@ -76,7 +76,15 @@ Goal: behave like a sharp friend who knows when to speak up and when to stay qui
    in the last 3 s.
 4. Manual triggers always run: `cue:ask` (typed question, or empty = "help me with what was just
    said"), `cue:screen` (fresh screenshot attached, downscaled to ≤ 1600 px JPEG), `cue:deeper`
-   (deep model, expands the active card's `detail`).
+   (deep model, writes the active card's newest section's `detail`; a no-op with a toast when that section already
+   has deep detail or one is being written).
+6. Deep pass: when a cue ends with `+deep`, the director runs the deep model on that section automatically
+   (`deepen`). It runs beside cues (never blocks or cancels them), the still-streaming cue no longer writes that
+   section's detail, a manual trigger that takes over cancels deep passes on other cards, and a cancelled or failed
+   pass restores the old detail. While it runs the section has `deepening: true`. The deep task asks for what an
+   expert would slide over: for architectures/flows a plain-ASCII diagram in a ```` ```text ```` fence (one column, ≤ 50
+   columns asked, ≤ 58 fit), every stage with shapes/data, then 4–7 bullets (formula, common mistake, trade-off); for
+   coding problems approach, code, complexity, 2 edge cases. `npm run deep` measures it with real models.
 5. One generation at a time per trigger kind; a newer trigger cancels the older stream.
 
 **What it sends** (cue model, streaming, no thinking), strictly ordered from most stable to most
@@ -93,6 +101,9 @@ labelled `Them:` / `You:` → the active card (prompts and points, with covered 
 - <talking point, ≤ 12 words>
 - <talking point>            (2 to 4 points, in the order to say them)
 ? <what they asked, ≤ 10 words>     ← the section's `prompt` label, after the points
++deep        ← optional: explain/derive/compare/design/draw an architecture, algorithm or system, or a coding
+               problem; the cue then writes no detail and the deep pass adds it (accepted on any line, also
+               `@new +deep`; a partial `+de` never shows)
 ## 
 <optional detail in markdown: code, numbers, a worked example>
 ```
@@ -110,7 +121,10 @@ said (do not repeat covered points; for a follow-up, build on their answer).
   to their `prompt` line *below* it; the previous section collapses only once the new `say` line has
   finished streaming.
 - `@new` goes to `queuedCardId` (not shown as the active card) when any of these hold: the user is
-  speaking (`partial.you`) or spoke in the last 2.5 s; the active card is < 4 s old; pinned.
+  speaking (`partial.you`) or spoke in the last 2.5 s; the active card is < 4 s old; pinned; the active card
+  holds (`cardHolds` in `src/shared/hold.ts`: a `screen` card or one whose detail has a code fence, i.e. any fence
+  not tagged `text`, last updated < 10 min ago). A holding card is never replaced on silence: the user steps to the
+  queued card (⌥⇧]); manual triggers still take over at once.
   Promote it when the user has been silent for 2.5 s and not pinned, or on `cue:step(1)`.
   Otherwise it becomes active immediately. If the user starts speaking before the first line of a
   new card arrives, route it to the queue rather than flashing it.
@@ -190,10 +204,15 @@ Left sidebar: Home, Live (dot when live), History, Settings. Bottom: audio statu
   - Section prompt in small muted caps ("THEY ASKED · Design a rate limiter").
   - `say` line: 17 px, semibold, high contrast. The first thing the eye lands on.
   - Points: 14.5 px, one per line, covered points dimmed with a check. Max line length ~60 chars.
-  - Detail: collapsed to 3 lines with "more" (⌥⇧D also expands); code in a mono block.
+  - Detail: prose collapsed to 3 lines with "more"; details with a code block or diagram open fully (the body
+  scrolls). Code blocks and diagrams never wrap: they keep their columns and scroll sideways.
+  While the deep pass runs: a quiet "Adding detail…" shimmer under the points.
+- Follow-up on a code card: when the newest section has no code, the latest code stays visible under it
+  ("CODE · from <prompt>") until the earlier sections are opened.
   - Older sections collapsed to a one-line prompt below a hairline, click to expand.
   - Streaming shows a soft caret; no layout jumps; no auto-scroll above the reading position.
-- Queued card: a slim bar at the bottom, "Next: <prompt> · ⌥⇧]", never replaces what is being read.
+- Queued card: a slim bar at the bottom, "Next: <prompt> · ⌥⇧]", never replaces what is being read. Behind a
+  holding card it becomes a peek: the label, the say line (up to 3 lines) and the points on one line.
 - Idle (no card yet): one line of live caption of the last thing they said, and hints for ⌥⇧A / ⌥⇧S.
 - Ask input: hidden by default; ⌥⇧A with the overlay focused, or the small Ask button in the
   header, opens it as a footer row. No hover-triggered layout changes anywhere; the overlay's height

@@ -18,7 +18,8 @@ const dev = !app.isPackaged
 // Personal tool: the packaged app seeds empty Vertex settings from the dev checkout's .env.local.
 const DEV_CHECKOUT_ENV_FILE = join(homedir(), 'proj/copilot/.env.local')
 // Dev and the packaged app share one data folder (settings, sessions, log).
-app.setPath('userData', join(app.getPath('appData'), 'sidekick'))
+// SIDEKICK_DATA=<dir> gives a dev run its own data folder, so it can run next to the installed app.
+app.setPath('userData', process.env.SIDEKICK_DATA || join(app.getPath('appData'), 'sidekick'))
 if (dev) loadEnvLocal(app.getAppPath())
 const fileLog = fileLogger(join(app.getPath('userData'), 'sidekick.log'))
 const log = (m: string): void => {
@@ -75,6 +76,13 @@ function main(): void {
     windows.broadcast('toast', { kind, text })
   }
 
+  // A window that throws or dies shows up blank with no other trace: put it in the log.
+  app.on('web-contents-created', (_e, wc) => {
+    wc.on('console-message', (_ev, level, message, line, source) => {
+      if (level >= 3) log(`window error: ${message} (${source.split('/').pop()}:${line})`)
+    })
+    wc.on('render-process-gone', (_ev, d) => log(`window process gone: ${d.reason}`))
+  })
   const windows = new Windows(settings, () => windows.broadcast('settings', settings.value))
   const fakeDir = process.env.SIDEKICK_FAKE_AUDIO
   if (fakeDir) log(`fake audio from ${fakeDir}`)

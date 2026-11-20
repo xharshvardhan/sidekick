@@ -70,3 +70,59 @@ describe('parseCue', () => {
     expect(p.say).toBe('')
   })
 })
+
+describe('parseCue +deep marker', () => {
+  const BODY = `> The decoder generates one token at a time, attending to itself causally and to the encoder.
+- Masked self-attention over generated tokens
+- Cross-attention: Q from decoder, K and V from encoder
+? Explain the transformer decoder`
+
+  it('is off by default', () => {
+    expect(parseCue(FULL, true).deep).toBe(false)
+  })
+
+  it('is read after the label, before the points, after the directive, or at the very end', () => {
+    for (const text of [
+      `@new\n${BODY}\n+deep\n`,
+      `@new\n+deep\n${BODY}`,
+      `@new +deep\n${BODY}`,
+      `@new\n${BODY}\n##\nsome detail\n+deep`
+    ]) {
+      const p = parseCue(text, true)
+      expect(p.deep).toBe(true)
+      expect(p.say).toMatch(/^The decoder generates/)
+      expect(p.points).toHaveLength(2)
+      expect(p.prompt).toBe('Explain the transformer decoder')
+      expect(p.detail).not.toContain('+deep')
+    }
+  })
+
+  it('a partial marker never shows up as the say line, a point or detail', () => {
+    for (const cut of ['+', '+d', '+dee', '+deep']) {
+      const before = parseCue(`@new\n${cut}`)
+      expect(before.say).toBe('')
+      expect(before.deep).toBe(false) // only once the line is complete
+      const after = parseCue(`@new\n${BODY}\n##\nx\n${cut}`)
+      expect(after.detail).toBe('x')
+    }
+    expect(parseCue(`@new\n+deep\n> Hi`).deep).toBe(true)
+  })
+
+  it('every streamed prefix keeps say growing and deep turns on once', () => {
+    const text = `@new\n+deep\n${BODY}\n`
+    let seen = false
+    let prev = ''
+    for (let i = 1; i <= text.length; i++) {
+      const p = parseCue(text.slice(0, i))
+      expect(p.say.startsWith(prev)).toBe(true)
+      prev = p.say
+      if (seen) expect(p.deep).toBe(true)
+      seen ||= p.deep
+    }
+    expect(seen).toBe(true)
+  })
+
+  it('is ignored on @none', () => {
+    expect(parseCue('@none\n+deep', true).deep).toBe(false)
+  })
+})

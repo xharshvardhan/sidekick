@@ -1,6 +1,6 @@
 import './main.css'
 
-import { StrictMode } from 'react'
+import { Component, StrictMode, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import { demoBackdrop, demoMode, demoReview, demoScene, setBridge } from './bridge'
@@ -27,8 +27,28 @@ connectStore()
   })
   .catch((e) => useStore.getState().toast('error', `Couldn't reach Sidekick: ${String(e)}`))
 
+/** A render error must never leave a window blank mid-call: log it and draw the app again. */
+class Recover extends Component<{ children: ReactNode }, { n: number; failedAt: number }> {
+  state = { n: 0, failedAt: 0 }
+  componentDidCatch(e: Error): void {
+    console.error(`render failed, recovering: ${e.message}`)
+    const now = Date.now()
+    // twice within 2 s means it fails on every draw: stop retrying instead of looping
+    if (now - this.state.failedAt > 2000) this.setState({ n: this.state.n + 1, failedAt: now })
+  }
+  render(): ReactNode {
+    return (
+      <div key={this.state.n} className="contents">
+        {this.props.children}
+      </div>
+    )
+  }
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <Recover>
+      <App />
+    </Recover>
   </StrictMode>
 )

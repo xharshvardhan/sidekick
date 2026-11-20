@@ -21,7 +21,11 @@ macOS 14+ on Apple Silicon. Uses Google Vertex (Gemini) for transcription and an
 On Home, give the call a title, pick a preset (Interview, Sales call, Meeting, Custom), add notes and
 files (resume, job description, deck) and press Start. The overlay appears at the top of the screen.
 When they finish a question, a card streams in; follow-ups add a section to the same card. A new card
-waits ("Next" bar) while you are still talking. Points you have already said are dimmed. End the
+waits ("Next" bar) while you are still talking. Points you have already said are dimmed.
+For questions that need depth (explain an architecture, design a system, draw something, a coding problem) the card
+comes first and a stronger model adds a diagram or the code under it a few seconds later ("Adding detail…").
+A card with code (or from "solve what's on screen") stays put for 10 minutes while you type from it: new cards wait
+in the "Next" bar, which then shows their answer, and ⌥⇧] switches. End the
 session to get a recap in History. Put facts about yourself in Settings → Profile: Sidekick never
 invents your experience, so without them it gives you a sentence with [blanks] to fill.
 
@@ -31,7 +35,7 @@ invents your experience, so without them it gives you a sentence with [blanks] t
 | ----- | ------------------------------------------- |
 | ⌥⇧A   | Help me with what was just said (or ask)    |
 | ⌥⇧S   | Capture the screen and solve what is on it  |
-| ⌥⇧D   | Go deeper on the current card               |
+| ⌥⇧D   | Add in-depth detail to the current card     |
 | ⌥⇧[   | Previous card                               |
 | ⌥⇧]   | Next card                                   |
 | ⌥⇧P   | Pin the current card                        |
@@ -50,6 +54,7 @@ All are editable in Settings → Hotkeys.
 | `npm run sim`            | Scripted calls through the real pipeline with real Vertex calls      |
 | `SIM_NO_PROFILE=1 npm run sim` | Same, with an empty profile (checks nothing is invented)       |
 | `npm run shots`          | Screenshots of every screen and overlay state into `shots/`          |
+| `npm run deep`           | Deep-dive questions through cue + deep pass with real models: outputs and timings |
 | `npm run app`            | Build `Sidekick.app` and install it in `~/Applications`              |
 | `npm run typecheck`      | TypeScript checks                                                    |
 
@@ -85,7 +90,8 @@ To hear the same call through the full audio pipeline: `SIDEKICK_FAKE_AUDIO=<dir
 
 Dev and the installed app share one data folder, `~/Library/Application Support/sidekick`
 (settings, sessions, and `sidekick.log`, which is the first place to look when something goes wrong).
-Only one of them can run at a time.
+Only one of them can run at a time, unless the dev run gets its own folder: `SIDEKICK_DATA=<dir> npm run dev`
+(copy `settings.json` into it first).
 
 ## Audio capture and echo cancellation
 

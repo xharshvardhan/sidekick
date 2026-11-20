@@ -21,9 +21,10 @@
     "predev": "test -x resources/bin/audiocap || npm run native",
     "sim": "tsx scripts/sim/run.ts",
     "replay": "tsx scripts/replay/run.ts",
+    "deep": "tsx scripts/deep/run.ts",
     "replay:prepare": "tsx scripts/replay/prepare.ts",
     "replay:gold": "tsx scripts/replay/gold.ts",
-    "app": "(test -x resources/bin/audiocap || npm run native) && npm run build && electron-builder --mac dir --arm64 && mkdir -p \"$HOME/Applications\" && rm -rf \"$HOME/Applications/Sidekick.app\" && ditto dist/mac-arm64/Sidekick.app \"$HOME/Applications/Sidekick.app\" && echo \"Installed $HOME/Applications/Sidekick.app\""
+    "app": "(test -x resources/bin/audiocap || npm run native) && npm run build && electron-builder --mac dir --arm64 && sh scripts/sign.sh dist/mac-arm64/Sidekick.app && mkdir -p \"$HOME/Applications\" && rm -rf \"$HOME/Applications/Sidekick.app\" && ditto dist/mac-arm64/Sidekick.app \"$HOME/Applications/Sidekick.app\" && echo \"Installed $HOME/Applications/Sidekick.app\""
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",

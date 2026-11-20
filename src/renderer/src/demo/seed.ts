@@ -240,6 +240,103 @@ export const cardSeven: Card = {
   ]
 }
 
+/** A real deep pass (gemini-4-hydrogen via `npm run deep`), under the cue model's instant card. */
+export const cardDecoder: Card = {
+  id: 'c7',
+  createdAt: now - 20_000,
+  source: 'auto',
+  status: 'done',
+  sections: [
+    {
+      id: 's7',
+      prompt: 'Explain and draw the transformer decoder',
+      say: 'The decoder is an autoregressive stack that predicts the next token by looking at previous tokens and encoder outputs.',
+      points: pts([
+        ['Masked self-attention prevents looking at future tokens', false],
+        ['Cross-attention keys and values come from the encoder', false],
+        ['Feed-forward network processes each position independently', false]
+      ]),
+      detail: "```text\nTarget tokens [B, T]\n  |\n  v\n[ Token Emb + Pos Enc ] -> X: [B, T, d]\n  |\n  v\n+----------------------------------------+\n| N x Decoder Layer                      |\n|                                        |\n|  Q, K, V = X                           |\n|  [ Masked Multi-Head Self-Attn ]       |\n|  (causal mask M: -inf for j > i)       |\n|    |                                   |\n|    v                                   |\n|  [ Add & LayerNorm ] -> X1: [B, T, d]  |\n|    |                                   |\n|    v                                   |\n|  Q = X1; K, V = enc_out [B, S, d]      |\n|  [ Cross-Attention ]                   |\n|    |                                   |\n|    v                                   |\n|  [ Add & LayerNorm ] -> X2: [B, T, d]  |\n|    |                                   |\n|    v                                   |\n|  [ Feed-Forward (FFN) ]                |\n|    |                                   |\n|    v                                   |\n|  [ Add & LayerNorm ] -> X: [B, T, d]   |\n+----------------------------------------+\n  |\n  v\n[ Linear (d -> V) + Softmax ]\n  |\n  v\nNext-token probs [B, T, V]\n```\n\n- Attention formula: `softmax((Q * K^T) / sqrt(d_k) + M) * V`, where `d_k = d / h` keeps dot-product variance from saturating softmax.\n- Causal mask `M` adds `-inf` to future positions (`j > i`) before softmax so their attention weights become `0`.\n- Cross-attention uses the decoder's `X1` as `Q` and the encoder's final output as `K, V` to attend over the source sequence.\n- FFN processes each position independently: `W2 * act(W1 * x + b1) + b2` (typically ReLU or GELU).\n- Common mistake: thinking the decoder runs one token at a time during training—it processes the full target sequence in parallel via teacher forcing and the causal mask, and only runs autoregressively at inference.\n- Trade-off: dropping cross-attention (decoder-only) simplifies scaling and KV-caching for general LLMs, while keeping it (encoder-decoder) is more parameter-efficient for conditioned tasks like translation."
+    }
+  ]
+}
+
+/** The same card while the deep model is still working. */
+export const cardDecoderAdding: Card = {
+  ...cardDecoder,
+  sections: [{ ...cardDecoder.sections[0], detail: '', deepening: true }]
+}
+
+/** "Solve what's on screen", then a follow-up without code: the code stays visible under it. */
+export const cardRainWater: Card = {
+  id: 'c8',
+  createdAt: now - 3 * MIN,
+  updatedAt: now - 90_000,
+  source: 'screen',
+  status: 'done',
+  sections: [
+    {
+      id: 's8',
+      prompt: 'Trapping Rain Water',
+      say: 'I would use two pointers from both ends, keeping the highest wall seen on each side.',
+      points: pts([
+        ['Move the side with the lower max', true],
+        ['Water at i = side max minus height', false]
+      ]),
+      detail: [
+        'Two pointers, one pass.',
+        '',
+        '```python',
+        'def trap(height: list[int]) -> int:',
+        '    left, right = 0, len(height) - 1',
+        '    left_max = right_max = water = 0',
+        '    while left < right:',
+        '        if height[left] < height[right]:',
+        '            left_max = max(left_max, height[left])',
+        '            water += left_max - height[left]',
+        '            left += 1',
+        '        else:',
+        '            right_max = max(right_max, height[right])',
+        '            water += right_max - height[right]',
+        '            right -= 1',
+        '    return water',
+        '```'
+      ].join('\n')
+    },
+    {
+      id: 's9',
+      prompt: 'Why is that O(1) space?',
+      say: 'It only keeps two indexes and two running maxima, no prefix arrays, so space stays constant.',
+      points: pts([
+        ['Prefix-max arrays would be O(n)', false],
+        ['Each index is visited once: O(n) time', false]
+      ]),
+      detail: ''
+    }
+  ]
+}
+
+/** A side question that arrived while the user types the code: it waits, shown as a peek. */
+export const cardSide: Card = {
+  id: 'c9',
+  createdAt: now - 15_000,
+  source: 'auto',
+  status: 'done',
+  sections: [
+    {
+      id: 's10',
+      prompt: 'Have you used Kafka in production?',
+      say: 'Yes, at Ledgerly settlement events went through Kafka, which is what took us from a nightly batch to under two minutes.',
+      points: pts([
+        ['Event-driven settlement pipeline at Ledgerly', false],
+        ['Nightly batch to under two minutes', false],
+        ['Failed payouts down about 40%', false]
+      ]),
+      detail: ''
+    }
+  ]
+}
+
 export const cardError: Card = {
   id: 'c5',
   createdAt: now - 3_000,
@@ -343,6 +440,18 @@ export function seedLive(scene: string, fresh: boolean): LiveState {
       return { ...live, activeCardId: 'c3', thinking: true }
     case 'followup':
       return { ...live, cards: [cardAbout, cardLimiter], activeCardId: 'c2' }
+    case 'deep':
+      return { ...live, cards: [cardAbout, cardLimiter, cardDecoder], activeCardId: 'c7' }
+    case 'adding':
+      return { ...live, cards: [cardAbout, cardLimiter, cardDecoderAdding], activeCardId: 'c7' }
+    case 'hold':
+      return {
+        ...live,
+        cards: [cardAbout, cardRainWater, cardSide],
+        activeCardId: 'c8',
+        queuedCardId: 'c9',
+        partial: { you: true, them: false }
+      }
     case 'many':
       return { ...live, cards: [cardAbout, cardLimiter, cardSeven], activeCardId: 'c6' }
     case 'error':
