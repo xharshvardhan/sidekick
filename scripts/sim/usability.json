@@ -1,0 +1,69 @@
+{
+  "title": "Cloud console usability study",
+  "preset": "custom",
+  "notes": "Usability study with a researcher from a cloud provider. I do hands-on tasks in their console while thinking aloud; the researcher asks questions now and then.",
+  "profile": "",
+  "files": ["files/my-experience.md"],
+  "voices": { "you": "Daniel", "them": "Samantha" },
+  "lines": [
+    {
+      "speaker": "them",
+      "text": "Hi, thanks for joining today. Can you hear me okay?",
+      "gapMs": 500,
+      "expect": "none"
+    },
+    { "speaker": "you", "text": "Yes, loud and clear.", "gapMs": 900 },
+    {
+      "speaker": "them",
+      "text": "Great. Today you'll do a few tasks in our console while thinking aloud. There are no right or wrong answers, we're testing the product, not you.",
+      "gapMs": 800,
+      "expect": "none"
+    },
+    {
+      "speaker": "them",
+      "text": "Before we start, could you tell me a bit about your role and what you work on?",
+      "gapMs": 1500,
+      "expect": "card",
+      "blanks": false
+    },
+    {
+      "speaker": "you",
+      "text": "Sure. I'm a machine learning engineer at a health startup.",
+      "gapMs": 2600
+    },
+    {
+      "speaker": "them",
+      "text": "Nice. And tell me how you use cloud GPUs for fine-tuning today.",
+      "gapMs": 900,
+      "expect": "card",
+      "blanks": false
+    },
+    { "speaker": "you", "text": "Mostly spot instances, with checkpoints.", "gapMs": 2600 },
+    {
+      "speaker": "them",
+      "text": "Okay, let's start task one. Please create a new project and set its default region.",
+      "gapMs": 1200
+    },
+    {
+      "speaker": "you",
+      "text": "Okay. Hmm, where is the region setting? Oh, here, it's under project settings.",
+      "gapMs": 3000
+    },
+    { "speaker": "you", "text": "Okay, done.", "gapMs": 4000 },
+    {
+      "speaker": "them",
+      "text": "Thanks. How did you feel about task one? Anything particularly good or bad?",
+      "gapMs": 1500,
+      "blanks": true
+    },
+    { "speaker": "you", "text": "It was fine overall.", "gapMs": 3000 },
+    {
+      "speaker": "them",
+      "text": "And how big is the team you work with day to day?",
+      "gapMs": 1200,
+      "expect": "card",
+      "blanks": true
+    },
+    { "speaker": "you", "text": "Let me think.", "gapMs": 2500 }
+  ]
+}

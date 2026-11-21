@@ -1,7 +1,9 @@
 // Deep-dive check with real models: each question goes through the cue model as if they had just asked it, then
 // (on +deep) through the automatic deep pass. Prints both outputs and the timings, and flags diagram lines wider
 // than the overlay fits. Usage: npm run deep [-- <substring filter> | "<your own question?>"]
-import { mkdirSync, writeFileSync } from 'fs'
+//        npm run deep -- --image a.png [--image b.jpg]   (the "solve what's on screen" path, one run per image)
+import { execFileSync } from 'child_process'
+import { mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
 import type { LiveState } from '../../src/shared/types'
@@ -32,7 +34,8 @@ const SHALLOW = [
 const MAX_COLS = 58
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
-const s = (ms?: number): string => (ms === undefined ? '   -  ' : `${(ms / 1000).toFixed(1)}s`.padStart(6))
+const s = (ms?: number): string =>
+  ms === undefined ? '   -  ' : `${(ms / 1000).toFixed(1)}s`.padStart(6)
 
 /** Lines inside ```text diagram blocks wider than the overlay (code may scroll sideways; diagrams must fit). */
 function wideLines(md: string): string[] {
@@ -46,7 +49,18 @@ function wideLines(md: string): string[] {
   return out
 }
 
-async function ask(question: string): Promise<{ cue?: RunRecord; deep?: RunRecord; detail: string }> {
+/** The screenshot as the app sends it: base64 JPEG (other formats are converted with macOS `sips`). */
+function jpeg(file: string): string {
+  if (/\.jpe?g$/i.test(file)) return readFileSync(file).toString('base64')
+  const out = join(tmpdir(), `sidekick-deep-${Date.now()}.jpg`)
+  execFileSync('sips', ['-s', 'format', 'jpeg', file, '--out', out], { stdio: 'ignore' })
+  return readFileSync(out).toString('base64')
+}
+
+async function ask(
+  question: string,
+  image?: string
+): Promise<{ cue?: RunRecord; deep?: RunRecord; detail: string }> {
   const settings = { ...defaultSettings(process.env), profile: '' }
   const llm = makeLlm(settings.vertex)
   const state: LiveState = { ...idleState(), session: 'live' }
@@ -78,16 +92,19 @@ async function ask(question: string): Promise<{ cue?: RunRecord; deep?: RunRecor
     },
     []
   )
-  director.onThemEnd(now - 4000, now)
+  const kind = image ? 'screen' : 'auto'
+  if (image) void director.screen(jpeg(image))
+  else director.onThemEnd(now - 4000, now)
   const done = (): boolean => {
-    const cue = runs.find((r) => r.kind === 'auto')
+    const cue = runs.find((r) => r.kind === kind)
     if (!cue) return false
     const shown = cue.outcome === 'new' || cue.outcome === 'extend'
-    return !shown || !parseCue(cue.raw ?? '', true).deep || runs.some((r) => r.kind === 'deeper')
+    const deepWanted = image || parseCue(cue.raw ?? '', true).deep
+    return !shown || !deepWanted || runs.some((r) => r.kind === 'deeper')
   }
-  for (const t0 = Date.now(); !done() && Date.now() - t0 < 90_000; ) await sleep(50)
+  for (const t0 = Date.now(); !done() && Date.now() - t0 < 90_000;) await sleep(50)
   return {
-    cue: runs.find((r) => r.kind === 'auto'),
+    cue: runs.find((r) => r.kind === kind),
     deep: runs.find((r) => r.kind === 'deeper'),
     detail: state.cards[0]?.sections[0]?.detail ?? ''
   }
@@ -95,6 +112,8 @@ async function ask(question: string): Promise<{ cue?: RunRecord; deep?: RunRecor
 
 async function main(): Promise<void> {
   loadEnvLocal(resolve(__dirname, '../..'))
+  const images = process.argv.flatMap((a, i) => (process.argv[i - 1] === '--image' ? [a] : []))
+  if (images.length) return screens(images)
   const filter = process.argv[2]?.toLowerCase()
   const all = [...DEEP.map((q) => ({ q, want: true })), ...SHALLOW.map((q) => ({ q, want: false }))]
   const rows: string[] = []
@@ -113,7 +132,8 @@ async function main(): Promise<void> {
     ok &&= pass
     console.log(`\n=== ${q}`)
     console.log(cue?.raw?.trim().replace(/^/gm, '  | ') ?? '  (no cue)')
-    if (deep) console.log(`  --- deep (${deep.outcome}${deep.error ? ` ${deep.error}` : ''}):\n${detail}`)
+    if (deep)
+      console.log(`  --- deep (${deep.outcome}${deep.error ? ` ${deep.error}` : ''}):\n${detail}`)
     if (wide.length) console.log(`  !! ${wide.length} diagram lines wider than ${MAX_COLS} columns`)
     rows.push(
       `| ${q.slice(0, 58).padEnd(58)} | ${deepAsked ? '+deep' : '  -  '} | ${s(cue?.firstLineAt && cue.firstLineAt - t)} | ${s(deep?.firstLineAt && deep.firstLineAt - t)} | ${s(deep?.endedAt && deep.endedAt - t)} | ${String(detail.split(/\s+/).filter(Boolean).length).padStart(5)} | ${wide.length ? `${wide.length} wide` : pass ? 'ok' : 'FAIL'} |`
@@ -129,6 +149,29 @@ async function main(): Promise<void> {
   const file = join(dir, `deep-${Date.now()}.json`)
   writeFileSync(file, JSON.stringify(saved, null, 1))
   console.log(`\nraw outputs: ${file}\nDEEP ${ok ? 'PASSED' : 'FAILED'}`)
+  process.exit(ok ? 0 : 1)
+}
+
+/** Screen path: cue card + the always-on deep pass, per image. Pass = a card and a deep detail with a code fence. */
+async function screens(images: string[]): Promise<void> {
+  const results = await Promise.all(
+    images.map((f) => ask('(the user pressed "solve what\'s on screen")', f))
+  )
+  let ok = true
+  for (const [i, { cue, deep, detail }] of results.entries()) {
+    const t = cue?.startedAt ?? 0
+    const pass = deep?.outcome === 'deeper' && /```/.test(detail)
+    ok &&= pass
+    console.log(`\n=== ${images[i]}`)
+    console.log(cue?.raw?.trim().replace(/^/gm, '  | ') ?? '  (no cue)')
+    console.log(
+      `  --- deep (${deep?.outcome ?? 'none'}${deep?.error ? ` ${deep.error}` : ''}):\n${detail}`
+    )
+    console.log(
+      `  first line ${s(cue?.firstLineAt && cue.firstLineAt - t)}, deep starts ${s(deep?.firstLineAt && deep.firstLineAt - t)}, deep done ${s(deep?.endedAt && deep.endedAt - t)}  ${pass ? 'ok' : 'FAIL'}`
+    )
+  }
+  console.log(`\nDEEP ${ok ? 'PASSED' : 'FAILED'}`)
   process.exit(ok ? 0 : 1)
 }
 

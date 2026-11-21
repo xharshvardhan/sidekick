@@ -55,6 +55,7 @@ All are editable in Settings → Hotkeys.
 | `SIM_NO_PROFILE=1 npm run sim` | Same, with an empty profile (checks nothing is invented)       |
 | `npm run shots`          | Screenshots of every screen and overlay state into `shots/`          |
 | `npm run deep`           | Deep-dive questions through cue + deep pass with real models: outputs and timings |
+| `npm run deep -- --image shot.png` | The "solve what's on screen" path on your own screenshot(s)  |
 | `npm run app`            | Build `Sidekick.app` and install it in `~/Applications`              |
 | `npm run typecheck`      | TypeScript checks                                                    |
 

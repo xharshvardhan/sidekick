@@ -12,7 +12,14 @@ import type {
 import { errorMessage, isAbort, streamText, type Llm } from '../llm'
 import { Deck, type UserActivity } from './cards'
 import { parseCue, type CueKind } from './protocol'
-import { TASKS, contextParts, deeperTask, systemPrompt, type PendingAudio } from './prompt'
+import {
+  TASKS,
+  contextParts,
+  deeperTask,
+  screenTask,
+  systemPrompt,
+  type PendingAudio
+} from './prompt'
 
 export type TriggerKind = 'auto' | 'ask' | 'screen' | 'deeper'
 export type Outcome = CueKind | 'skipped' | 'cancelled' | 'error' | 'deeper'
@@ -218,8 +225,9 @@ export class Director {
       apply(text, true)
       rec.outcome = made
       if (target) target.card.status = 'done'
-      // the cue asked for depth (an architecture, a derivation, a design, code): the deep model adds it
-      if (target && deep && !deck.deepDetail.has(target.section.id))
+      // the cue asked for depth (an architecture, a derivation, a design, code), or the user asked for help with
+      // their screen (always wants the exact next steps): the deep model adds it
+      if (target && (deep || kind === 'screen') && !deck.deepDetail.has(target.section.id))
         void this.deepen(target.card, target.section, extra.image)
       if (!target && manual) this.d.toast('info', 'Nothing useful to add right now.')
     } catch (e) {
@@ -247,7 +255,8 @@ export class Director {
     const card = this.d.deck.active
     const section = card?.sections[card.sections.length - 1]
     if (!this.brief || !card || !section) return this.d.toast('info', 'No card to expand yet.')
-    if (this.deeps.has(section.id)) return this.d.toast('info', 'Already adding detail to this card.')
+    if (this.deeps.has(section.id))
+      return this.d.toast('info', 'Already adding detail to this card.')
     if (this.d.deck.deepDetail.has(section.id))
       return this.d.toast('info', 'This card already has the in-depth detail.')
     return this.deepen(card, section)
@@ -278,7 +287,7 @@ export class Director {
             tail: ctx.tail,
             audio: [],
             card,
-            task: deeperTask(section),
+            task: image ? screenTask(section) : deeperTask(section),
             image // a screen card: the deep model needs the problem itself, not just the card
           }),
           signal: ctrl.signal,

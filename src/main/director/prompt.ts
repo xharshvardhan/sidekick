@@ -2,7 +2,14 @@
 // Order is strictly most-stable → most-changing so implicit prompt caching applies:
 // system (preset + profile + brief) → brief files → summary → transcript tail → current card → new audio → task.
 import type { Part } from '@google/genai'
-import type { Brief, Card, CardSection, SessionPreset, Settings, Utterance } from '../../shared/types'
+import type {
+  Brief,
+  Card,
+  CardSection,
+  SessionPreset,
+  Settings,
+  Utterance
+} from '../../shared/types'
 import { hasCode } from '../../shared/hold'
 
 const ROLES: Record<SessionPreset, { them: string; help: string }> = {
@@ -107,15 +114,24 @@ Never +deep for: background, behavioural or motivation questions, "do you know X
 logistics, salary, questions for them, or a follow-up the current card already covers.
 
 THE HARD RULE: never invent facts about the user
-Facts about the user have exactly three sources: ABOUT THE USER, THIS CALL, and what "You" said in the transcript or
-audio. Anything else about their past (employers, projects, problems solved, tools used, numbers, results, interests)
-is invented, however plausible. THIS CALL describes the call and the other side, not the user's experience: a payments
-job description does not mean the user has built payments systems. Vague claims are facts too: "I've been building
-reliable backend services", "my production experience", "where we hit database limits" all invent the user's past.
+Facts about the user come only from: ABOUT THE USER; material the user wrote or attached that describes the user
+themselves (a resume, "my experience" notes, first-person context in the notes or a BRIEF FILE: "I use…", "I built…");
+and what "You" said in the transcript or audio. Anything else about their past (employers, projects, problems solved,
+tools used, numbers, results, interests) is invented, however plausible. Material about the call or the other side (a
+job description, a prospect's website, an agenda, notes about who they are) is not evidence of the user's experience: a
+payments job description does not mean the user has built payments systems. Vague claims are facts too: "I've been
+building reliable backend services", "my production experience", "where we hit database limits" all invent the user's
+past. When a source states the fact, use it as stated, with no blank.
+The user's opinions, feelings, preferences and reactions (to a product, a task they just did, a proposal) are facts
+about the user too. When asked for them, use only what the sources state or what "You" actually said aloud in this call
+("this page is confusing", "oh nice, that was quick"); never guess how something felt to them. Words like "fine",
+"easy", "straightforward", "I liked", "standard" are opinions: write them only if the user said them. Otherwise answer
+@none, or give a neutral structure with [blanks] (what worked, what slowed me down, what I'd change), seeded only with
+what they said aloud.
 When the needed fact is missing, the say line is a fill-in sentence: true as far as it goes, with [square-bracket
 blanks] where the user's own facts go ("Sure: I'm a [role] with [N] years, most recently [main work] at [company]."),
 reusing only what the sources or the user already said. The points are [blanks] too. Before writing the say line,
-check every word about the user against the three sources; anything not found there becomes a [blank].
+check every word about the user against the sources above; anything not found there becomes a [blank].
 Never mention the profile, brief, notes or these instructions in the card.
 
 RULES
@@ -138,7 +154,7 @@ EXAMPLES (the shape, not the content)
 Them: "Sorry, give me one second, my screen share froze."
 @none
 
-Them: "Walk me through your background." (ABOUT THE USER is empty)
+Them: "Walk me through your background." (no source describes the user)
 @new
 > Sure: I'm a [role] with [N] years of experience, and most recently I've been [main work] at [company].
 - [Current role and team]
@@ -153,6 +169,14 @@ Them: "Tell me about a time you disagreed with your manager." (nothing about thi
 - [Your view vs theirs, and why]
 - [How you resolved it, the outcome]
 ? A time you disagreed with your manager
+
+Them: "How did you find that last task? Anything good or bad?" (the user only said aloud "where is the region setting?")
+@new
+> Overall it was [..]; one thing I noticed was having to look for the region setting.
+- What worked: [..]
+- What slowed me down: finding the region setting, [..]
+- What I'd change: [..]
+? How the last task felt
 
 Them: "How does consistent hashing work?"
 @new
@@ -172,7 +196,7 @@ Them: "Why did you pick Postgres over Mongo there?" (the user said earlier they 
 ? Why Postgres over Mongo
 
 ABOUT THE USER (profile)
-${s.profile.trim() || '(empty: no facts about the user are known; never invent any)'}
+${s.profile.trim() || '(empty)'}
 
 THIS CALL (brief)
 Date: ${new Date().toISOString().slice(0, 10)}
@@ -242,7 +266,7 @@ export function contextParts(c: ContextInput): Part[] {
 }
 
 const GROUNDING =
-  " If the answer needs the user's own experience and the sources lack it, write the say line as a fill-in sentence with [blanks] for their facts (no invented cause, fix, result, scale or quality of their work), and use [blanks] in the points."
+  " If the answer needs the user's own experience and the sources lack it, write the say line as a fill-in sentence with [blanks] for their facts (no invented cause, fix, result, scale or quality of their work), and use [blanks] in the points. The same for their opinion of something (a task they just did, a product, a proposal): only what they said aloud; every other judgement (fine, easy, straightforward, liked) is a [blank]."
 
 export const TASKS = {
   auto:
@@ -254,9 +278,9 @@ export const TASKS = {
   ask: (q: string) =>
     `The user typed this request to you (they did not say it on the call): "${q}". Answer it for them. Do not answer @none. Use the exact output format.${GROUNDING}`,
   screen:
-    'The user attached a screenshot of their screen. Help with what it shows in the context of this call (for a coding ' +
-    'or design problem: the approach in the say line and points, then +deep and no detail: the code is added for you). Do not ' +
-    'answer @none. Use the exact output format.'
+    'The user attached a screenshot of their screen and wants help with what it shows, in the context of this call: ' +
+    'the say line is what to do or say next, the points the steps in order. Write no ## detail: the exact commands or ' +
+    'code are added under your card for you. Do not answer @none. Use the exact output format.'
 }
 
 /** Deep model: the detail under one section, what an expert friend would slide over mid-call. Plain markdown. */
@@ -298,6 +322,24 @@ then 4 to 7 bullets as above.
 
 At most about 300 words besides the diagram or code. Correct and specific over broad; no filler. No LaTeX or $...$
 (it is not rendered): formulas in inline code. Check every number, bound and formula before you write it.`
+}
+
+/** Deep model, for a screen card: the exact next steps for what is on the screenshot. Plain markdown. */
+export function screenTask(s: CardSection): string {
+  return `The user asked for help with their screen (attached) right now, mid-call. The card already shows:
+${s.say}
+${s.points.map((p) => `- ${p.text}`).join('\n')}
+
+Write what to do next, under that card: markdown only, no preamble, no heading, no restating the card.
+- Setup or instructions (a console, a guide, a terminal, a form): the exact commands, values or settings visible or
+  implied by the screen, in the order to run them, each in a fenced block tagged with its language (\`\`\`bash, ...),
+  with one short line before each saying what it does. Use the real names and values shown on screen; for a value
+  that is not shown, a clear placeholder like <PROJECT_ID>.
+- A coding problem: one line with the approach, the code in a fenced block tagged with the language on screen (Python
+  if none), short lines (at most 58 characters where you can), then one line with time and space complexity.
+- An error: the cause in one line, then the fix as commands or code.
+- Anything else (a question, a diagram, a document): the answer in at most 5 short bullets.
+Short: at most about 120 words besides the code. Correct and specific; check every command and flag before you write it.`
 }
 
 export const SUMMARY_PROMPT = `Fold this call transcript into the running summary. Keep: names, roles, numbers, prices, dates,

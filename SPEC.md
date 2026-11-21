@@ -45,7 +45,8 @@ Keep it small: no DI framework, no event bus library, plain modules and a tiny t
 - One `audiocap` child per channel, restarted with backoff if it exits. Map stderr to `AudioHealth`.
   If the system channel reports an error mentioning permission/TCC, set `system: 'denied'`.
 - Segmenter per channel: adaptive energy VAD (track noise floor; speech = rms > max(floor×3, 120)),
-  300 ms pre-roll, end a segment after 550 ms of silence or 15 s. Drop segments with < 250 ms speech.
+  300 ms pre-roll, end a segment after 550 ms of silence or 15 s. Drop segments with < 250 ms speech. A segment only
+  starts (`speechStart`) after 100 ms of unbroken speech frames, so typing and clicks never open one.
   Emit `speechStart`, `speechEnd(segment pcm, startedAt, endedAt)`. Publish levels 8×/s.
   Timestamps come from sample counts anchored to each helper's `ready` time, not from `Date.now()`
   per chunk; exclude the pre-roll when comparing overlap between channels.
@@ -57,9 +58,14 @@ Keep it small: no DI framework, no event bus library, plain modules and a tiny t
   drop a `you` utterance that overlaps a `them` utterance in time and shares ≥ 60% of its words.
 
 ### Transcription
-- Each segment → WAV → STT model, prompt: verbatim transcript, nothing if no intelligible speech,
-  language hint from settings. Up to 3 in flight per channel; results inserted into the conversation
-  ordered by `startedAt`. Filter known hallucinations on near-silent audio (empty, "you", "Thank you.").
+- Each segment → WAV → STT model, prompt: verbatim transcript; `NO_SPEECH` when there is no clear speech
+  (silence, typing, breathing, music, noise); never sound tags like `<noise>`. Language hint: `settings.language`, or
+  else the script of the last 6 transcript lines (Latin → English, may mix Hindi; Devanagari → Hindi), "switch only if
+  the speech clearly does". The earlier lines themselves are not sent: given them, the STT model copies them into its
+  output (measured). Up to 3 in flight per channel; results inserted into the conversation ordered by `startedAt`.
+- Dropped results (never stored, never in coverage or model context): `NO_SPEECH`, sound tags, timestamps ("00:00"),
+  pure filler ("um", "uh", "mhm", "hmm", "uh-huh"), and known hallucinations on near-silent audio ("you", "Thank you.").
+  "yes", "okay", "no" are kept. The backchannel skip and card queueing use segment timing, not text, so they are unchanged.
 
 ### The director (the important part)
 Goal: behave like a sharp friend who knows when to speak up and when to stay quiet.
@@ -77,7 +83,9 @@ Goal: behave like a sharp friend who knows when to speak up and when to stay qui
 4. Manual triggers always run: `cue:ask` (typed question, or empty = "help me with what was just
    said"), `cue:screen` (fresh screenshot attached, downscaled to ≤ 1600 px JPEG), `cue:deeper`
    (deep model, writes the active card's newest section's `detail`; a no-op with a toast when that section already
-   has deep detail or one is being written).
+   has deep detail or one is being written). A `screen` card always gets the deep pass with the screenshot (no `+deep`
+   needed), with its own task: the exact next commands/values/code visible or implied on screen, in order, in fenced
+   blocks, short.
 6. Deep pass: when a cue ends with `+deep`, the director runs the deep model on that section automatically
    (`deepen`). It runs beside cues (never blocks or cancels them), the still-streaming cue no longer writes that
    section's detail, a manual trigger that takes over cancels deep passes on other cards, and a cancelled or failed
@@ -111,7 +119,9 @@ The directive is bare and the `say` line comes straight after it, so the first r
 as early as possible; the label comes later (show the section without a label until it arrives).
 Write a streaming parser for this with unit tests (partial lines, missing sections, junk before `@`).
 The prompt must make the model: answer as the user would say it, grounded in the brief/profile
-(never invent facts about the user; if the brief lacks it, give a structure to answer with);
+(never invent facts about the user; facts come from the profile, first-person material the user wrote or attached,
+e.g. a resume or "my experience" brief file, and what they said; material about the other side, like a job description,
+is not evidence; the user's opinions and reactions are facts too; if the sources lack it, give a structure with blanks);
 stay silent on small talk and on statements that need no reply; account for what the user already
 said (do not repeat covered points; for a follow-up, build on their answer).
 
@@ -165,7 +175,9 @@ model (keep names, numbers, commitments, questions asked). The prompt uses summa
   `{speaker, text, gapMs}` is rendered with macOS `say` to 16 kHz PCM, laid out on two timelines,
   and run through the real pipeline (segmenter → STT → director, real Vertex calls) headlessly.
   Prints a timeline with latencies (speech end → first card line) and asserts expectations in the
-  script (`expect: 'card' | 'none' | 'extend'`). Ship 3 scripts: interview, sales call, small talk.
+  script (`expect: 'card' | 'none' | 'extend'`, `blanks: true | false` for the say line's [blanks]). `files` attaches
+  brief files through the same `briefParts` path as the app. Scripts: interview, sales call, small talk, usability
+  study (first-person context file, empty profile).
 - `npm run shots`: launches the app with seeded demo data, saves PNGs of every route and the overlay
   (light and dark) to `shots/` via `webContents.capturePage()`. Used to review the UI.
 - `vitest` unit tests: segmenter, echo guard, coverage, protocol parser, card policy (mock model).

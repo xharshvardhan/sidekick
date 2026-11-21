@@ -12,7 +12,7 @@ import { Director, type RunRecord } from './director/director'
 import { briefParts } from './director/brief'
 import type { PendingAudio } from './director/prompt'
 import { errorMessage, type Llm } from './llm'
-import { transcribe } from './stt'
+import { callLanguage, transcribe } from './stt'
 
 export interface EngineDeps {
   llm(): Llm
@@ -481,7 +481,8 @@ export class Engine {
       if (sessionId !== this.state.sessionId) continue // queued in an earlier session
       c.inflight++
       const s = this.d.settings()
-      transcribe(this.d.llm(), s.models.stt, job.seg.pcm, s.language)
+      const lang = s.language || callLanguage(this.state.utterances.slice(-6).map((u) => u.text))
+      transcribe(this.d.llm(), s.models.stt, job.seg.pcm, lang)
         .then((text) => {
           if (this.state.sessionId !== sessionId) return
           this.pending.delete(job.id)

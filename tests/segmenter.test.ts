@@ -31,6 +31,16 @@ function run(
 }
 
 describe('Segmenter', () => {
+  it('typing (short clicks, never 100 ms unbroken) opens no segment', () => {
+    const click = (): Int16Array =>
+      Int16Array.from({ length: 160 }, (_, i) => Math.round(6000 * Math.exp(-i / 32) * Math.sin(i)))
+    const typing: Int16Array[] = []
+    for (let k = 0; k < 24; k++) typing.push(click(), silence(110, 20)) // ~8 keys per second for 3 s
+    const { segs, starts } = run([silence(1000, 20), ...typing, silence(1000, 20)])
+    expect(starts).toHaveLength(0)
+    expect(segs).toHaveLength(0)
+  })
+
   it('cuts one segment with timestamps from sample counts and pre-roll', () => {
     const { segs, starts } = run([silence(1000, 20), tone(1500), silence(1000, 20)])
     expect(segs).toHaveLength(1)

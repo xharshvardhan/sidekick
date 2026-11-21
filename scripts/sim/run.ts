@@ -3,10 +3,11 @@
 // and checks each line's expectation. Usage: npm run sim [-- scripts/sim/interview.json ...]
 import { execFileSync } from 'child_process'
 import { createHash } from 'crypto'
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
-import { basename, join, resolve } from 'path'
-import type { SessionPreset } from '../../src/shared/types'
+import { basename, dirname, join, resolve } from 'path'
+import type { Brief, SessionPreset } from '../../src/shared/types'
+import { mimeFor } from '../../src/main/director/brief'
 import { Engine } from '../../src/main/engine'
 import type { RunRecord } from '../../src/main/director/director'
 import { loadEnvLocal } from '../../src/main/env'
@@ -20,12 +21,14 @@ interface Line {
   text: string
   gapMs?: number // silence before this line starts (negative = overlap)
   expect?: Expect
+  blanks?: boolean // true: a card for this line must use [blanks]; false: its say line must have none
 }
 interface Script {
   title: string
   preset: SessionPreset
   notes: string
   profile: string
+  files?: string[] // brief files, relative to the script: sent through briefParts like the app's "Add files"
   voices?: { you?: string; them?: string }
   lines: Line[]
 }
@@ -53,7 +56,8 @@ function render(text: string, voice: string): Int16Array {
 /** Lay the lines out on two timelines and write you.pcm / them.pcm. */
 export function build(
   script: Script,
-  name: string
+  name: string,
+  brief: Brief
 ): { dir: string; lines: Placed[]; totalMs: number } {
   const voices = { you: script.voices?.you ?? 'Daniel', them: script.voices?.them ?? 'Samantha' }
   let cursor = 1000
@@ -83,11 +87,28 @@ export function build(
   for (const sp of ['you', 'them'] as const)
     writeFileSync(join(dir, `${sp}.pcm`), Buffer.from(tracks[sp].buffer))
   // the app auto-starts a session with this brief when launched with SIDEKICK_FAKE_AUDIO=<dir>
-  writeFileSync(
-    join(dir, 'brief.json'),
-    JSON.stringify({ title: script.title, preset: script.preset, notes: script.notes, files: [] })
-  )
+  writeFileSync(join(dir, 'brief.json'), JSON.stringify(brief))
   return { dir, lines: placed, totalMs }
+}
+
+/** The script's brief, files as the app stores them (BriefFile), so they reach the model through briefParts. */
+function briefOf(script: Script, path: string): Brief {
+  const files = (script.files ?? []).map((f, i) => {
+    const p = resolve(dirname(path), f)
+    return {
+      id: `f${i}`,
+      name: basename(p),
+      mimeType: mimeFor(p),
+      path: p,
+      bytes: statSync(p).size
+    }
+  })
+  return { title: script.title, preset: script.preset, notes: script.notes, files }
+}
+
+/** Blank check on the cards a line produced: none made passes (silence is fine), otherwise every say line must match. */
+function blanksOk(want: boolean, runs: RunRecord[]): boolean {
+  return runs.filter((r) => r.say).every((r) => r.say!.includes('[') === want)
 }
 
 function judge(expect: Expect, runs: RunRecord[]): { got: string; ok: boolean } {
@@ -105,7 +126,8 @@ function judge(expect: Expect, runs: RunRecord[]): { got: string; ok: boolean } 
 async function runScript(path: string): Promise<boolean> {
   const script = JSON.parse(readFileSync(path, 'utf8')) as Script
   const name = basename(path, '.json')
-  const { dir, lines, totalMs } = build(script, name)
+  const brief = briefOf(script, path)
+  const { dir, lines, totalMs } = build(script, name, brief)
   console.log(
     `\n=== ${script.title}  (${name}, ${sec(totalMs).trim()} s of audio, fake audio dir: ${dir})`
   )
@@ -134,7 +156,7 @@ async function runScript(path: string): Promise<boolean> {
     log: (m) => console.log(`  [log] ${m}`),
     onRun: (r) => runs.push(r)
   })
-  engine.start({ title: script.title, preset: script.preset, notes: script.notes, files: [] })
+  engine.start(brief)
 
   // play the whole call, then let in-flight work settle
   await new Promise((r) => setTimeout(r, t0 - Date.now() + totalMs + 2000))
@@ -160,6 +182,11 @@ async function runScript(path: string): Promise<boolean> {
       const j = judge(l.expect, l.runs)
       pass &&= j.ok
       verdict = `  expect ${l.expect.padEnd(6)} got ${j.got.padEnd(9)} ${j.ok ? 'PASS' : 'FAIL'}`
+    }
+    if (l.blanks !== undefined) {
+      const ok = blanksOk(l.blanks, l.runs)
+      pass &&= ok
+      verdict += `  ${l.blanks ? 'blanks' : 'no blanks'} ${ok ? 'PASS' : 'FAIL'}`
     }
     console.log(
       `${sec(l.start)}s ${tag}  ${JSON.stringify(l.text.length > 70 ? l.text.slice(0, 67) + '...' : l.text)}${verdict}`

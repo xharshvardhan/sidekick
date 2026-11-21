@@ -20,7 +20,7 @@ export interface SegmenterOptions {
   hangMs?: number
   maxMs?: number
   minSpeechMs?: number
-  startSpeechMs?: number // speech needed before `onStart` fires (filters clicks)
+  startSpeechMs?: number // unbroken speech needed before `onStart` fires (typing and clicks never last that long)
   minRms?: number
 }
 
@@ -44,6 +44,7 @@ export class Segmenter {
   private segStartSample = 0
   private lastSpeechSample = 0
   private speechFrames = 0
+  private run = 0 // consecutive speech frames
   private started = false
 
   constructor(private opts: SegmenterOptions = {}) {
@@ -130,17 +131,18 @@ export class Segmenter {
       this.segStartSample = frameStart
       this.lastSpeechSample = this.sample
       this.speechFrames = 1
+      this.run = 1
       this.started = false
     } else {
       this.seg.push(f)
+      this.run = speech ? this.run + 1 : 0
       if (speech) {
         this.speechFrames++
         this.lastSpeechSample = this.sample
       }
     }
 
-    const speechMs = this.speechFrames * FRAME_MS
-    if (!this.started && speechMs >= this.o.startSpeechMs) {
+    if (!this.started && this.run * FRAME_MS >= this.o.startSpeechMs) {
       this.started = true
       this.opts.onStart?.(this.timeOf(this.segStartSample))
     }

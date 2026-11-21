@@ -352,7 +352,10 @@ const DEEP = (say: string): string =>
 
 describe('auto deep pass (+deep)', () => {
   it('runs the deep model on the section once the cue finishes', async () => {
-    const t = setup([DEEP('The decoder predicts one token at a time.'), '```text\n[x] --> [y]\n```'])
+    const t = setup([
+      DEEP('The decoder predicts one token at a time.'),
+      '```text\n[x] --> [y]\n```'
+    ])
     await t.auto()
     while (t.runs.length < 2) await sleep(10)
     const sec = t.state.cards[0].sections[0]
@@ -373,6 +376,22 @@ describe('auto deep pass (+deep)', () => {
     await t.director.screen('aW1n')
     while (t.runs.length < 2) await sleep(10)
     expect(seen).toEqual([true, true])
+  })
+
+  it('a screen card always gets the deep pass, with the next-steps task, even without +deep', async () => {
+    const t = setup([NEW('Run the export commands.'), '```bash\nexport A=1\n```'])
+    const tasks: string[] = []
+    const llm = (t.director as unknown as { d: { llm: () => Llm } }).d.llm()
+    const real = llm.models.generateContentStream.bind(llm.models)
+    llm.models.generateContentStream = ((req: { contents: { parts: { text?: string }[] }[] }) => {
+      tasks.push(req.contents[0].parts.at(-1)?.text ?? '')
+      return real(req as never)
+    }) as never
+    await t.director.screen('aW1n')
+    while (t.runs.length < 2) await sleep(10)
+    expect(t.runs.map((r) => r.outcome)).toEqual(['new', 'deeper'])
+    expect(tasks[1]).toMatch(/help with their screen/)
+    expect(t.state.cards[0].sections[0].detail).toBe('```bash\nexport A=1\n```')
   })
 
   it('no +deep, no deep pass', async () => {

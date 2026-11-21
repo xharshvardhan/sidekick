@@ -107,7 +107,7 @@ function main(): void {
           ? ` ${r.firstLineAt - r.speechEndAt} ms after speech end`
           : ''
       log(
-        `cue ${r.kind} → ${r.outcome}${lat}${r.say ? `: ${r.say}` : ''}${r.error ? ` (${r.error})` : ''}`
+        `cue ${r.kind} → ${r.outcome}${r.reason ? ` [${r.reason}]` : ''}${lat}${r.say ? `: ${r.say}` : ''}${r.error ? ` (${r.error})` : ''}`
       )
     }
   })
