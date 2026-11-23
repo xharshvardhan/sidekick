@@ -276,8 +276,11 @@ describe('card policy (mocked model)', () => {
   })
 })
 
-const CODE = (say: string): string =>
-  `@new\n> ${say}\n- two pointers from both ends\n? Trapping rain water\n##\n\`\`\`python\ndef trap(h):\n    return 0\n\`\`\`\n`
+/** A coding problem: the cue marks it +code, then the deep pass writes the code. */
+const CODE = (say: string): string[] => [
+  `@new\n> ${say}\n- two pointers from both ends\n? Trapping rain water\n+code\n`,
+  '```python\ndef trap(h):\n    return 0\n```'
+]
 const quiet = (now: number): UserActivity => ({ now, youSpeaking: false, lastYouSpeechAt: 0 })
 
 describe('holding cards (code the user is typing from)', () => {
@@ -289,8 +292,9 @@ describe('holding cards (code the user is typing from)', () => {
   })
 
   it('a code card blocks auto-promotion; the queued card waits for next-card', async () => {
-    const t = setup([CODE('Two pointers, keep the max on each side.'), NEW('Side question.')])
+    const t = setup([...CODE('Two pointers, keep the max on each side.'), NEW('Side question.')])
     await t.auto()
+    while (t.runs.length < 2) await sleep(10)
     const [code] = t.state.cards
     code.createdAt -= 60_000
     code.updatedAt = code.createdAt // not fresh any more: only the hold keeps it
@@ -304,6 +308,19 @@ describe('holding cards (code the user is typing from)', () => {
     expect(t.state.queuedCardId).toBeNull()
   })
 
+  it('a snippet that only illustrates a concept does not hold', async () => {
+    const snippet =
+      '@new\n> noexcept promises no throw.\n- moves stay cheap\n? What noexcept does\n##\n```cpp\nvoid f() noexcept;\n```\n'
+    const t = setup([snippet, NEW('Next question.')])
+    await t.auto()
+    const [first] = t.state.cards
+    first.createdAt -= 60_000
+    first.updatedAt = first.createdAt
+    expect(cardHolds(first, Date.now())).toBe(false)
+    await t.auto()
+    expect(t.state.activeCardId).toBe(t.state.cards[1].id)
+  })
+
   it('a screen card holds even without code yet', async () => {
     const t = setup([NEW('Here is the approach.'), NEW('Side question.')])
     await t.director.screen('')
@@ -315,8 +332,9 @@ describe('holding cards (code the user is typing from)', () => {
   })
 
   it('the hold expires 10 minutes after the card last changed', async () => {
-    const t = setup([CODE('Two pointers.'), NEW('Later question.')])
+    const t = setup([...CODE('Two pointers.'), NEW('Later question.')])
     await t.auto()
+    while (t.runs.length < 2) await sleep(10)
     const code = t.state.cards[0]
     const updated = code.updatedAt!
     expect(cardHolds(code, updated + HOLD_MS - 1)).toBe(true)
@@ -328,8 +346,9 @@ describe('holding cards (code the user is typing from)', () => {
   })
 
   it('an expired hold lets a waiting card promote on silence', async () => {
-    const t = setup([CODE('Two pointers.'), NEW('Side question.')])
+    const t = setup([...CODE('Two pointers.'), NEW('Side question.')])
     await t.auto()
+    while (t.runs.length < 2) await sleep(10)
     const code = t.state.cards[0]
     code.createdAt -= 60_000
     code.updatedAt = code.createdAt
@@ -340,8 +359,9 @@ describe('holding cards (code the user is typing from)', () => {
   })
 
   it('a manual trigger still takes over a holding card at once', async () => {
-    const t = setup([CODE('Two pointers.'), NEW('Asked.')])
+    const t = setup([...CODE('Two pointers.'), NEW('Asked.')])
     await t.auto()
+    while (t.runs.length < 2) await sleep(10)
     await t.director.ask('what now?')
     expect(t.state.activeCardId).toBe(t.state.cards[1].id)
   })

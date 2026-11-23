@@ -19,6 +19,10 @@ function useDraft<T>(value: T, save: (v: T) => void, delay = 600): [T, (v: T) =>
   const pending = useRef<{ v: T; t: ReturnType<typeof setTimeout> } | null>(null)
   const saveRef = useRef(save)
   saveRef.current = save
+  // Follow the saved value when it changes from outside (e.g. a reviewed draft) unless the user is mid-edit.
+  useEffect(() => {
+    if (!pending.current) setDraft(value)
+  }, [value])
   useEffect(
     () => () => {
       if (pending.current) {

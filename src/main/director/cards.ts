@@ -92,6 +92,7 @@ export class Deck {
   fill(section: CardSection, p: ParsedCue): void {
     section.say = p.say
     if (p.prompt) section.prompt = p.prompt
+    if (p.code) section.coding = true
     if (!this.deepDetail.has(section.id)) section.detail = p.detail
     section.points = p.points.map((text, i) => {
       const old = section.points[i]

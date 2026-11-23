@@ -1,7 +1,7 @@
 // App window + overlay panel, window mode, and event broadcast to both.
 import { BrowserWindow, screen, shell } from 'electron'
 import { join } from 'path'
-import type { Events, WindowMode } from '../shared/types'
+import { OVERLAY_MIN, type Events, type WindowMode } from '../shared/types'
 import { overlayBounds } from './placement'
 import type { SettingsStore } from './settings'
 
@@ -87,13 +87,14 @@ export class Windows {
       visualEffectState: 'active',
       transparent: false,
       hasShadow: true,
-      resizable: true,
+      // Native edges show a resize cursor, which screen recordings pick up: the page has its own edge handles.
+      resizable: false,
       minimizable: false,
       maximizable: false,
       fullscreenable: false,
       skipTaskbar: true,
-      minWidth: 360,
-      minHeight: 140,
+      minWidth: OVERLAY_MIN.width,
+      minHeight: OVERLAY_MIN.height,
       show: false,
       webPreferences: this.webPreferences()
     })
@@ -113,7 +114,7 @@ export class Windows {
       }, 500)
     }
     win.on('moved', save)
-    win.on('resized', save)
+    win.on('resize', save)
     win.on('close', (e) => {
       if (this.quitting) return
       e.preventDefault()

@@ -521,6 +521,7 @@ export class Engine {
       const echoes = this.state.utterances
         .slice(-10)
         .filter((x) => x.speaker === 'you' && isEcho(x, [u]))
+      for (const x of echoes) this.d.log(`echo removed: ${x.text}`)
       if (echoes.length) this.convo.remove(new Set(echoes.map((x) => x.id)))
     }
     this.d.onUtterance?.(u)

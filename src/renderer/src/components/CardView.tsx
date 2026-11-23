@@ -1,17 +1,9 @@
-import {
-  Fragment,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode
-} from 'react'
+import { Fragment, useState, type CSSProperties, type ReactNode } from 'react'
 import { Check, ChevronRight, CircleAlert } from 'lucide-react'
 import { Markdown } from '@openai/apps-sdk-ui/components/Markdown'
 import { ShimmerText } from '@openai/apps-sdk-ui/components/ShimmerText'
 import type { Card, CardSection } from '../../../shared/types'
 import { hasCode } from '../../../shared/hold'
-import { useHotkey } from '../lib'
 
 const KIND: Record<Card['source'], string> = {
   auto: 'They asked',
@@ -26,13 +18,10 @@ const px = (n: number, scale: number): string => `${(n * scale).toFixed(2)}px`
 export function CardView({
   card,
   scale = 1,
-  detailOpen = false,
   compact = false
 }: {
   card: Card
   scale?: number
-  /** Show detail fully expanded (the Live page has room for it). */
-  detailOpen?: boolean
   /** Overlay: older sections hide behind one "N earlier" line instead of one row each. */
   compact?: boolean
 }): ReactNode {
@@ -106,7 +95,6 @@ export function CardView({
                 label={label}
                 scale={scale}
                 streaming={isNewest && streaming}
-                detailOpen={detailOpen}
                 onCollapse={
                   isNewest ? undefined : () => setExpanded({ ...expanded, [s.id]: false })
                 }
@@ -119,13 +107,15 @@ export function CardView({
                   >
                     <span className="shrink-0 font-semibold tracking-wider uppercase">Code</span>
                     <span aria-hidden>·</span>
-                    <span className="min-w-0 truncate font-medium" style={{ fontSize: px(12, scale) }}>
+                    <span
+                      className="min-w-0 truncate font-medium"
+                      style={{ fontSize: px(12, scale) }}
+                    >
                       from {carried.prompt || 'an earlier answer'}
                     </span>
                   </div>
                   <Detail
                     markdown={carried.detail.match(/^\s*```[\s\S]*?^\s*```/gm)?.join('\n\n') ?? ''}
-                    open
                     streaming={false}
                     scale={scale}
                   />
@@ -153,14 +143,12 @@ function SectionBody({
   label,
   scale,
   streaming,
-  detailOpen,
   onCollapse
 }: {
   section: CardSection
   label: string
   scale: number
   streaming: boolean
-  detailOpen: boolean
   onCollapse?: () => void
 }): ReactNode {
   const { prompt, say, points, detail, deepening } = section
@@ -204,7 +192,7 @@ function SectionBody({
           {points.map((p, i) => (
             <li
               key={p.id}
-              className={`flex max-w-[60ch] items-start gap-2 ${p.covered ? 'text-tertiary' : 'text-default'}`}
+              className={`flex items-start gap-2 ${p.covered ? 'text-tertiary' : 'text-default'}`}
             >
               {p.covered ? (
                 <Check
@@ -226,61 +214,28 @@ function SectionBody({
           <ShimmerText as="span">Adding detail…</ShimmerText>
         </div>
       )}
-      {detail && (
-        <Detail
-          markdown={detail}
-          open={detailOpen}
-          streaming={caretAt === 'detail'}
-          scale={scale}
-        />
-      )}
+      {detail && <Detail markdown={detail} streaming={caretAt === 'detail'} scale={scale} />}
     </div>
   )
 }
 
 function Detail({
   markdown,
-  open: startOpen,
   streaming,
   scale
 }: {
   markdown: string
-  open: boolean
   streaming: boolean
   scale: number
 }): ReactNode {
-  const [userOpen, setOpen] = useState(false)
-  // code and diagrams are useless clipped to 3 lines: they open fully (the overlay body scrolls)
-  const open = startOpen || userOpen || /^\s*```/m.test(markdown)
-  const [overflows, setOverflows] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  const deeper = useHotkey('deeper')
-  useLayoutEffect(() => {
-    const el = ref.current
-    if (el) setOverflows(el.scrollHeight > el.clientHeight + 2)
-  }, [markdown, open])
-  const lines = 3 * 1.5 * 13.5 * scale
   return (
-    <div className="mt-2.5 text-secondary">
-      <div
-        ref={ref}
-        className={`card-md overflow-hidden ${open ? '' : 'clamped'} ${streaming ? 'caret' : ''}`}
-        style={{ maxHeight: open ? undefined : `${lines}px`, fontSize: px(13.5, scale) }}
-      >
-        <Markdown skipHtml copyableCodeBlocks={false}>
-          {markdown}
-        </Markdown>
-      </div>
-      {!open && overflows && (
-        <button
-          onClick={() => setOpen(true)}
-          className="no-drag mt-1 flex items-center gap-1.5 font-medium text-secondary hover:text-default"
-          style={{ fontSize: px(12, scale) }}
-        >
-          More
-          {deeper && <span className="text-tertiary">· {deeper} goes deeper</span>}
-        </button>
-      )}
+    <div
+      className={`card-md mt-2.5 text-secondary ${streaming ? 'caret' : ''}`}
+      style={{ fontSize: px(13.5, scale) }}
+    >
+      <Markdown skipHtml copyableCodeBlocks={false}>
+        {markdown}
+      </Markdown>
     </div>
   )
 }

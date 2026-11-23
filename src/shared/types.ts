@@ -23,6 +23,7 @@ export interface CardSection {
   points: CardPoint[] // short talking points, in speaking order
   detail: string // optional markdown: code, numbers, longer explanation
   deepening?: boolean // the deep model is writing `detail` right now
+  coding?: boolean // a coding problem: the card holds while the user types the solution
 }
 
 export interface CardPoint {
@@ -68,7 +69,8 @@ export interface Brief {
 }
 
 /** Where a profile draft comes from: picked files (resume), a past session, or pasted text (a transcript, a bio). */
-export type ProfileSource = { kind: 'files' } | { kind: 'session'; id: string } | { kind: 'text'; text: string }
+export type ProfileSource =
+  { kind: 'files' } | { kind: 'session'; id: string } | { kind: 'text'; text: string }
 
 export type SessionState = 'idle' | 'live' | 'paused' | 'ended'
 
@@ -121,6 +123,14 @@ export interface AudioHealth {
   message?: string
 }
 
+export interface Bounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+export const OVERLAY_MIN = { width: 360, height: 140 }
+
 export type WindowMode = 'app' | 'overlay' // app = normal window (overlay optional); overlay = overlay only
 
 export interface Hotkey {
@@ -153,7 +163,7 @@ export interface Settings {
     hideFromScreenShare: boolean
     opacity: number // 0.6..1
     fontScale: number // 0.9..1.3
-    bounds: { x: number; y: number; width: number; height: number } | null
+    bounds: Bounds | null
   }
   theme: 'system' | 'light' | 'dark'
   hotkeys: Hotkey[]
@@ -195,6 +205,7 @@ export interface Api {
   'window:setMode': (mode: WindowMode) => void
   'window:toggleOverlay': () => void
   'window:getMode': () => WindowMode
+  'overlay:setBounds': (bounds: Bounds) => void // resize from the overlay's own edge handles
 }
 
 /** Main -> renderer events (webContents.send). */

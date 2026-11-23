@@ -154,7 +154,7 @@ export function SessionPage({ id }: { id: string }): ReactNode {
               {session.cards.map((c) => (
                 <Panel key={c.id} className="p-5">
                   <div className="mb-2 text-xs text-tertiary">{timeOfDay(c.createdAt)}</div>
-                  <CardView card={c} detailOpen />
+                  <CardView card={c} />
                 </Panel>
               ))}
             </div>

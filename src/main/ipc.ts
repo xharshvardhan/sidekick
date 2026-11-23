@@ -245,7 +245,8 @@ export function registerIpc(ctx: AppCtx): void {
     'window:setMode': (mode) =>
       windows.setMode(mode, engine.state.session === 'live' || engine.state.session === 'paused'),
     'window:toggleOverlay': () => windows.toggleOverlay(),
-    'window:getMode': () => windows.mode
+    'window:getMode': () => windows.mode,
+    'overlay:setBounds': (bounds) => windows.overlay?.setBounds(bounds)
   }
 
   for (const [channel, fn] of Object.entries(api)) {

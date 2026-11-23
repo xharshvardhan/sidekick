@@ -108,6 +108,15 @@ describe('parseCue +deep marker', () => {
     expect(parseCue(`@new\n+deep\n> Hi`).deep).toBe(true)
   })
 
+  it('+code asks for the deep pass and marks a coding problem', () => {
+    for (const text of [`@new\n${BODY}\n+code\n`, `@new +code\n${BODY}`]) {
+      const p = parseCue(text, true)
+      expect(p.deep).toBe(true)
+      expect(p.code).toBe(true)
+    }
+    expect(parseCue(`@new\n${BODY}\n+deep\n`, true).code).toBe(false)
+  })
+
   it('every streamed prefix keeps say growing and deep turns on once', () => {
     const text = `@new\n+deep\n${BODY}\n`
     let seen = false

@@ -4,6 +4,7 @@ import type { Utterance } from '../../shared/types'
 export const words = (t: string): string[] => t.toLowerCase().match(/[\p{L}\p{N}']+/gu) ?? []
 
 /** A `you` utterance is echo when it overlaps a `them` utterance in time and ≥ 60% of its words appear there.
+ *  Echo cannot start before its source: a user who was already talking when they cut in with the same words is kept.
  *  `slackMs` only absorbs clock skew between the two capture helpers; a reply right after them is not echo. */
 export function isEcho(you: Utterance, them: Utterance[], slackMs = 150): boolean {
   const mine = words(you.text)
@@ -11,6 +12,7 @@ export function isEcho(you: Utterance, them: Utterance[], slackMs = 150): boolea
   return them.some((t) => {
     if (t.speaker !== 'them') return false
     if (you.startedAt > t.endedAt + slackMs || you.endedAt < t.startedAt - slackMs) return false
+    if (you.startedAt < t.startedAt - slackMs) return false
     const theirs = new Set(words(t.text))
     return mine.filter((w) => theirs.has(w)).length / mine.length >= 0.6
   })

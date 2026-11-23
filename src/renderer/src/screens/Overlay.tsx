@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@openai/apps-sdk-ui/components/Button'
 import { ShimmerText } from '@openai/apps-sdk-ui/components/ShimmerText'
-import type { LiveState } from '../../../shared/types'
+import { OVERLAY_MIN, type LiveState } from '../../../shared/types'
 import { cardHolds } from '../../../shared/hold'
 import { demoBackdrop } from '../bridge'
 import { CardView } from '../components/CardView'
@@ -90,8 +90,65 @@ export function Overlay(): ReactNode {
           <div className="drag flex-1" />
         )}
       </div>
+      <ResizeHandles />
     </div>
   )
+}
+
+/** [position, horizontal pull, vertical pull]: -1 moves the left/top edge, 1 the right/bottom edge. */
+const EDGES: [string, number, number][] = [
+  ['inset-x-3 top-0 h-1', 0, -1],
+  ['inset-x-3 bottom-0 h-1', 0, 1],
+  ['inset-y-3 left-0 w-1', -1, 0],
+  ['inset-y-3 right-0 w-1', 1, 0],
+  ['top-0 left-0 size-3', -1, -1],
+  ['top-0 right-0 size-3', 1, -1],
+  ['bottom-0 left-0 size-3', -1, 1],
+  ['right-0 bottom-0 size-3', 1, 1]
+]
+
+/** Drag any edge or corner to resize. The window's native edges are off: they change the mouse pointer, and
+ *  the pointer shows up in screen recordings even though the overlay does not. */
+function ResizeHandles(): ReactNode {
+  const start = useRef({ x: 0, y: 0, left: 0, top: 0, width: 0, height: 0 })
+  return EDGES.map(([position, hx, hy]) => (
+    <div
+      key={position}
+      className={`no-drag absolute z-10 ${position}`}
+      onPointerDown={(e) => {
+        e.currentTarget.setPointerCapture(e.pointerId)
+        start.current = {
+          x: e.screenX,
+          y: e.screenY,
+          left: window.screenX,
+          top: window.screenY,
+          width: window.outerWidth,
+          height: window.outerHeight
+        }
+      }}
+      onPointerMove={(e) => {
+        if (!e.currentTarget.hasPointerCapture(e.pointerId)) return
+        const s = start.current
+        const width = Math.max(OVERLAY_MIN.width, s.width + hx * (e.screenX - s.x))
+        const height = Math.max(OVERLAY_MIN.height, s.height + hy * (e.screenY - s.y))
+        call('overlay:setBounds', {
+          x: hx < 0 ? s.left + s.width - width : s.left,
+          y: hy < 0 ? s.top + s.height - height : s.top,
+          width,
+          height
+        })
+      }}
+    >
+      {hx > 0 && hy > 0 && (
+        <svg
+          viewBox="0 0 8 8"
+          className="absolute right-[3px] bottom-[3px] size-2 text-tertiary opacity-50"
+        >
+          <path d="M7 1 1 7M7 4.5 4.5 7" stroke="currentColor" strokeLinecap="round" fill="none" />
+        </svg>
+      )}
+    </div>
+  ))
 }
 
 function Header({

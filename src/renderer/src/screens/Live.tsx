@@ -236,7 +236,7 @@ function CardPanel({
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
         <div className="rounded-xl border border-default bg-surface p-5 shadow-sm">
           {active ? (
-            <CardView key={active.id} card={active} scale={1.1} detailOpen />
+            <CardView key={active.id} card={active} scale={1.1} />
           ) : live.thinking ? (
             <ShimmerText className="text-secondary">Working out what to say…</ShimmerText>
           ) : (

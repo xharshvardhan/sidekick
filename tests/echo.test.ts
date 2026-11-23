@@ -17,6 +17,10 @@ const u = (
 
 describe('echo guard', () => {
   const them = [u('them', 'How would you design a rate limiter for a public API?', 1000, 4000)]
+  it('keeps the user when they were already talking and the other side cut in with the same words', () => {
+    const cut = [u('them', 'For exclusive ownership, which smart pointer?', 5000, 8000)]
+    expect(isEcho(u('you', 'So for the exclusive ownership of the', 2000, 5500), cut)).toBe(false)
+  })
   it('drops a you utterance that overlaps and repeats their words', () => {
     expect(isEcho(u('you', 'design a rate limiter for a public API', 1500, 3800), them)).toBe(true)
   })

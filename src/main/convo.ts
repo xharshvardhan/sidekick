@@ -47,7 +47,7 @@ export class Conversation {
     try {
       const text = await generateText(ai, {
         model,
-        maxTokens: 700,
+        maxTokens: 1500, // room to spare: a summary cut off mid-word loses the newest part of the call
         parts: [
           {
             text: `${SUMMARY_PROMPT}\n\nRUNNING SUMMARY\n${this.summary || '(empty)'}\n\nNEW TRANSCRIPT\n${transcriptText(chunk)}`

@@ -5,7 +5,7 @@
 //   > one sentence to say now
 //   - talking point            (2 to 4)
 //   ? what they asked          (the section label)
-//   +deep                      (optional: the deep model should add a diagram / code / depth)
+//   +deep | +code              (optional: the deep model should add a diagram / depth, or the code for a coding problem)
 //   ##
 //   optional markdown detail
 
@@ -18,11 +18,12 @@ export interface ParsedCue {
   points: string[]
   prompt: string
   detail: string
-  deep: boolean // the model asked for a deep pass (`+deep`, accepted on any line before the detail, or as its last line)
+  deep: boolean // the model asked for a deep pass (`+deep` or `+code`, accepted on any line before the detail, or as its last line)
+  code: boolean // `+code`: a coding problem the user will type out
 }
 
 const DIRECTIVE = /^@(none|new|extend)\b[:\s]*(.*)$/i
-const DEEP = /^\+deep\s*$/i
+const DEEP = /^\+(deep|code)\s*$/i
 const clean = (s: string): string => s.replace(/^\*\*(.*)\*\*$/, '$1').trim()
 
 /** Parse everything received so far. `done` = the stream has ended, so the last line is complete. */
@@ -34,7 +35,8 @@ export function parseCue(text: string, done = false): ParsedCue {
     points: [],
     prompt: '',
     detail: '',
-    deep: false
+    deep: false,
+    code: false
   }
   const lines = text.replace(/\r/g, '').split('\n')
   let inDetail = false
@@ -43,8 +45,10 @@ export function parseCue(text: string, done = false): ParsedCue {
   lines.forEach((raw, i) => {
     const partial = !done && i === lines.length - 1
     const line = raw.trim()
-    if (DEEP.test(line) && !partial) {
+    const marker = DEEP.exec(line)
+    if (marker && !partial) {
       out.deep = true
+      if (marker[1].toLowerCase() === 'code') out.code = true
       return
     }
     if (partial && /^\+[a-z]*$/i.test(line)) return // "+de": a marker still streaming
@@ -62,9 +66,11 @@ export function parseCue(text: string, done = false): ParsedCue {
         if (partial && !/^@(none|new|extend)\s*$/i.test(line)) return
         out.kind = m[1].toLowerCase() as CueKind
         let rest = m[2]
-        if (/(^|\s)\+deep\b/i.test(rest)) {
-          out.deep = true // "@new +deep"
-          rest = rest.replace(/(^|\s)\+deep\b/i, ' ').trim()
+        const inline = /(^|\s)\+(deep|code)\b/i.exec(rest) // "@new +deep"
+        if (inline) {
+          out.deep = true
+          if (inline[2].toLowerCase() === 'code') out.code = true
+          rest = rest.replace(inline[0], ' ').trim()
         }
         if (rest && out.kind !== 'none') out.prompt = clean(rest) // tolerate "@new <label>"
         return
@@ -98,7 +104,7 @@ export function parseCue(text: string, done = false): ParsedCue {
   })
 
   out.detail = detail.join('\n').trim()
-  if (out.kind === 'none') out.deep = false
+  if (out.kind === 'none') out.deep = out.code = false
   if (done && out.say) out.sayDone = true
   return out
 }
