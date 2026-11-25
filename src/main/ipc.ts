@@ -1,5 +1,5 @@
 // Implements every `Api` channel on ipcMain.handle.
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { BrowserWindow, clipboard, dialog, ipcMain } from 'electron'
 import { copyFileSync, mkdirSync, realpathSync, statSync } from 'fs'
 import { basename, join, sep } from 'path'
 import type { Part } from '@google/genai'
@@ -22,6 +22,7 @@ export interface AppCtx {
   llm(): Llm
   filesDir: string
   toast(kind: 'info' | 'error', text: string): void
+  log(line: string): void
   /** settings:set side effects (llm reset, hotkeys, overlay, broadcast) */
   settingsChanged(prev: ReturnType<SettingsStore['set']>): void
   sessionStarted(): void
@@ -64,6 +65,7 @@ let screenToken = 0
 export async function screenCue(ctx: AppCtx): Promise<void> {
   const { engine } = ctx
   const token = ++screenToken
+  const pressedAt = Date.now()
   const sessionId = engine.state.sessionId
   const current = (): boolean =>
     token === screenToken &&
@@ -71,12 +73,34 @@ export async function screenCue(ctx: AppCtx): Promise<void> {
     (engine.state.session === 'live' || engine.state.session === 'paused')
   try {
     const jpeg = await ctx.windows.hiddenFromCapture(screenshot)
-    if (current()) void engine.director.screen(jpeg)
+    if (current()) void engine.director.screen(jpeg, pressedAt)
   } catch (e) {
     if (!current()) return
     engine.deck.addError('screen', (e as Error).message, Date.now())
     engine.changed()
   }
+}
+
+const copied = new Map<string, number>() // card id → blocks copied so far
+
+/** Copy the next fenced block of the active card (newest section first) to the clipboard; each press moves on to
+ *  the following block and wraps around. Without blocks, the newest detail as a whole. */
+export function copyNext(ctx: AppCtx): void {
+  const card = ctx.engine.deck.active
+  const details = card ? [...card.sections].reverse().map((s) => s.detail) : []
+  const blocks = details.flatMap((d) =>
+    [...d.matchAll(/^[ \t]*```[^\n]*\n([\s\S]*?)^[ \t]*```/gm)].map((m) => m[1].trimEnd())
+  )
+  const whole = details.find((d) => d.trim())
+  if (!card || (!blocks.length && !whole)) return ctx.toast('info', 'Nothing to copy on this card.')
+  const i = blocks.length ? (copied.get(card.id) ?? 0) % blocks.length : 0
+  clipboard.writeText(blocks[i] ?? whole ?? '')
+  copied.set(card.id, i + 1)
+  const first = (blocks[i] ?? whole ?? '').trim().split('\n')[0].slice(0, 40)
+  ctx.toast(
+    'info',
+    blocks.length ? `Copied ${i + 1} of ${blocks.length}: ${first}` : `Copied: ${first}`
+  )
 }
 
 /** Brief files come from the renderer: keep only those inside the app's own files folder. */
@@ -246,12 +270,18 @@ export function registerIpc(ctx: AppCtx): void {
       windows.setMode(mode, engine.state.session === 'live' || engine.state.session === 'paused'),
     'window:toggleOverlay': () => windows.toggleOverlay(),
     'window:getMode': () => windows.mode,
+    'ui:event': () => {}, // logged below, like every other action
     'overlay:setBounds': (bounds) => windows.overlay?.setBounds(bounds)
   }
 
+  // What the user did, for reading a session back later: cue, session, window and ui:event calls with their arguments.
+  const ACTION = /^(cue|window|ui):|^session:(end|pause)$/
   for (const [channel, fn] of Object.entries(api)) {
-    ipcMain.handle(channel, (_e, ...args: unknown[]) =>
-      (fn as (...a: unknown[]) => unknown)(...args)
-    )
+    ipcMain.handle(channel, (_e, ...args: unknown[]) => {
+      if (channel === 'session:start') ctx.log('action session:start')
+      else if (ACTION.test(channel) && channel !== 'window:getMode')
+        ctx.log(`action ${channel} ${args.map((a) => JSON.stringify(a)).join(' ')}`.trimEnd())
+      return (fn as (...a: unknown[]) => unknown)(...args)
+    })
   }
 }

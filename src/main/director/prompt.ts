@@ -155,6 +155,8 @@ RULES
   context, and spell names the way the profile and brief do.
 - Always write the "? what they asked" line after the points; only +deep or +code may follow it.
 - Read what the user has already said since the question. Points marked [covered] are done: do not repeat them.
+- A new card or section must agree with the CURRENT CARD and what the user already said: the same names, structures
+  and numbers, never a second version of the same design.
 - Never copy code or detail from the CURRENT CARD into a new card or section: it is still on the user's screen. Refer
   to it instead ("same code as above, the loop is O(n)") and add only what is new.
 - Reply in the language they are speaking${s.language ? ` (expected: ${s.language})` : ''}.
@@ -197,6 +199,15 @@ Them: "How does consistent hashing work?"
 ? How consistent hashing works
 +deep
 
+Them: "For a feed recommender framed as RL, what are the state, action and reward?"
+@new
+> I'd frame it with the user's context as the state, the ranked slate as the action, and engagement as the reward.
+- The state is the user's history plus the current session context
+- The action is the ranked list of items the system chooses to show
+- The reward mixes clicks with longer-term signals like retention
+? State, action and reward for a recommender
++deep
+
 Them: "Write a function that reverses a linked list."
 @new
 > I'll walk the list once and flip each node's next pointer to the node before it.
@@ -231,13 +242,17 @@ export function transcriptText(utterances: Utterance[]): string {
   return utterances.map((u) => `${u.speaker === 'you' ? 'You' : 'Them'}: ${u.text}`).join('\n')
 }
 
-export function cardText(card: Card | undefined): string {
+/** `full`: include each section's detail (the deep pass, so its detail agrees with what is already on screen).
+ *  The cue model only gets a marker: with the detail in view it decides too often that nothing more is needed. */
+export function cardText(card: Card | undefined, full = false): string {
   if (!card || !card.sections.length) return '(none)'
   return card.sections
     .map((s) => {
       const pts = s.points.map((p) => `- ${p.text}${p.covered ? ' [covered]' : ''}`).join('\n')
       const detail = s.detail
-        ? `\n[on screen below this: ${hasCode(s.detail) ? 'code' : 'detail'}, ${s.detail.split('\n').length} lines; do not repeat it]`
+        ? full
+          ? `\n[${hasCode(s.detail) ? 'code' : 'detail'} on screen below this; do not repeat it, stay consistent with it]\n${s.detail}`
+          : `\n[on screen below this: ${hasCode(s.detail) ? 'code' : 'detail'}, ${s.detail.split('\n').length} lines; do not repeat it]`
         : ''
       return `They asked: ${s.prompt || '(label pending)'}\n> ${s.say}\n${pts}${detail}`
     })
@@ -253,6 +268,8 @@ export interface ContextInput {
   briefParts: Part[]
   summary: string
   tail: Utterance[]
+  previous?: Card // the card shown just before `card` (deep pass): what the user was last shown and said
+  fullDetail?: boolean // deep pass: show the card's detail in full, not just a marker
   card: Card | undefined
   audio: PendingAudio[]
   audioOmittedMs?: number // older untranscribed speech left out to bound the request
@@ -267,7 +284,9 @@ export function contextParts(c: ContextInput): Part[] {
   parts.push({
     text: `TRANSCRIPT (oldest first)\n${transcriptText(c.tail) || '(nothing transcribed yet)'}`
   })
-  parts.push({ text: `CURRENT CARD\n${cardText(c.card)}` })
+  if (c.previous)
+    parts.push({ text: `PREVIOUS CARD (already shown)\n${cardText(c.previous, true)}` })
+  parts.push({ text: `CURRENT CARD\n${cardText(c.card, c.fullDetail)}` })
   if (c.audioOmittedMs)
     parts.push({
       text: `(About ${Math.round(c.audioOmittedMs / 1000)} s of earlier speech is still being transcribed and is not included.)`
@@ -289,7 +308,7 @@ const GROUNDING =
 
 export const TASKS = {
   auto:
-    'They just stopped speaking (it may only be a pause). Decide now: @none, @new or @extend, in the exact output format.' +
+    'They just stopped speaking (it may only be a pause). Decide now: @none, @new or @extend, in the exact output format. Every point is a short spoken clause that names its subject ("The state is …", never "State: …").' +
     GROUNDING,
   help:
     'The user pressed "help me now": help with what was just said. Do not answer @none. Use the exact output format.' +
@@ -298,8 +317,11 @@ export const TASKS = {
     `The user typed this request to you (they did not say it on the call): "${q}". Answer it for them. Do not answer @none. Use the exact output format.${GROUNDING}`,
   screen:
     'The user attached a screenshot of their screen and wants help with what it shows, in the context of this call: ' +
-    'the say line is what to do or say next, the points the steps in order. Write no ## detail: the exact commands or ' +
-    'code are added under your card for you. Do not answer @none. Use the exact output format.'
+    'the say line is what to do or say next, the points the steps in order. If the screen shows a form, a written ' +
+    'exercise or a question to answer in writing, the say line is the answer itself (the choice to make, the main ' +
+    'idea) and the points are what goes in each empty field, in order; never describe what you are about to do. ' +
+    'Stay consistent with what the CURRENT CARD already wrote for this task. Write no ## detail: the exact commands, ' +
+    'code or field text are added under your card for you. Do not answer @none. Use the exact output format.'
 }
 
 /** Deep model: the detail under one section, what an expert friend would slide over mid-call. Plain markdown. */
@@ -307,11 +329,13 @@ export function deeperTask(s: CardSection): string {
   return `The user needs depth on this question right now, mid-call. The card already shows:
 They asked: ${s.prompt}
 > ${s.say}
-${s.points.map((p) => `- ${p.text}`).join('\n')}
+${s.points.map((p, i) => `${i + 1}. ${p.text}`).join('\n')}
 
 Write the detail that goes under that card: what an expert friend would slide over to them.${s.coding ? ' This is a coding problem: use the "Coding problem" format below.' : ''}
-If the say line or a point above is technically wrong or overstated, start with one line: **Correction:** the
-accurate claim in a few words. The user glances at it
+If the say line or a numbered point above is technically wrong or overstated, start with one line for each, before
+anything else: **Correction (point 2):** the corrected point, or **Correction (say):** the corrected say line. Write
+it as the short clause the user should say in its place: it replaces that line on the card. Correct general-knowledge
+claims only, never how the user's own system or work is described. The user glances at the detail
 while talking, so: markdown only, no preamble, no heading, no restating the card, nothing about the user that is not
 in the sources (never invent their experience).
 
@@ -359,6 +383,11 @@ Write what to do next, under that card: markdown only, no preamble, no heading, 
 - A coding problem: one line with the approach, the code in a fenced block tagged with the language on screen (Python
   if none), short lines (at most 58 characters where you can), then one line with time and space complexity.
 - An error: the cause in one line, then the fix as commands or code.
+- A form, a written exercise or a question to answer in writing: one fenced \`\`\`text block per empty field, ready to
+  paste, with one line before it naming the field exactly as the screen does. Meet any length limit shown. Skip
+  fields that are already filled and meet their limit; for one that is too short, give the full replacement text.
+  Keep the names, numbers and choices the PREVIOUS CARD already wrote for this task, and do not write the same
+  field twice. The length limit below does not apply.
 - Anything else (a question, a diagram, a document): the answer in at most 5 short bullets.
 Short: at most about 120 words besides the code. Correct and specific; check every command and flag before you write it.`
 }
@@ -366,4 +395,5 @@ Short: at most about 120 words besides the code. Correct and specific; check eve
 export const SUMMARY_PROMPT = `Fold this call transcript into the running summary. Keep: names, roles, numbers, prices, dates,
 commitments and next steps (fix obvious speech-to-text slips in names and terms by context), and every question asked with the gist of how the user answered in one short line (not
 their words). Plain bullet points, oldest first, at most 300 words: when it grows past that, shorten the oldest items
-and never drop the newest part of the call. Output only the new summary.`
+and never drop the newest part of the call or anything the user stated about their own systems, projects or numbers.
+Output only the new summary.`

@@ -449,3 +449,64 @@ describe('auto deep pass (+deep)', () => {
     expect(t.toasts.at(-1)).toMatch(/already/i)
   })
 })
+
+describe('answering the new question', () => {
+  it('a card is shown at once when the user began speaking after the question ended', async () => {
+    const t = setup([NEW('One.'), NEW('Two.')])
+    await t.auto()
+    t.state.cards[0].createdAt -= 10_000 // old enough
+    t.setActivity({ youSpeaking: true, youSpeechStartedAt: Date.now() + 60_000 })
+    await t.auto()
+    expect(t.state.activeCardId).toBe(t.state.cards[1].id)
+    expect(t.state.queuedCardId).toBeNull()
+  })
+
+  it('a follow-up on a full card is shown at once, even while the user is speaking', async () => {
+    const t = setup([NEW('One.'), EXT('Two.'), EXT('Three.'), EXT('Four.')])
+    for (let i = 0; i < 3; i++) await t.auto()
+    t.setActivity({ youSpeaking: true })
+    await t.auto()
+    expect(t.state.cards).toHaveLength(2)
+    expect(t.state.activeCardId).toBe(t.state.cards[1].id)
+    expect(t.runs.at(-1)!.reason).toBe('follow-up on a full card')
+  })
+})
+
+describe('corrections from the deep pass', () => {
+  const FIXES =
+    '**Correction (point 2):** Redis counters need an expiry set atomically.\n' +
+    '**Correction (say):** The decoder predicts one token at a time.\n' +
+    '**Correction:** This also depends on the Go version.\n\n' +
+    '```text\n[x] --> [y]\n```'
+
+  it('replace the wrong lines in place and leave the rest as the detail', async () => {
+    const t = setup([DEEP('The decoder predicts all tokens at once.'), FIXES])
+    await t.auto()
+    while (t.runs.length < 2) await sleep(10)
+    const sec = t.state.cards[0].sections[0]
+    expect(sec.say).toBe('The decoder predicts one token at a time.')
+    expect(sec.sayWas).toBe('The decoder predicts all tokens at once.')
+    expect(sec.points[1]).toMatchObject({
+      text: 'Redis counters need an expiry set atomically',
+      was: 'cross-attention over the encoder',
+      covered: false
+    })
+    expect(sec.points[0].was).toBeUndefined()
+    expect(sec.note).toBe('This also depends on the Go version.')
+    expect(sec.detail).toBe('```text\n[x] --> [y]\n```')
+    expect(t.runs.at(-1)!.reason).toBe('corrected 2 lines')
+  })
+
+  it('a correction line still streaming is not shown as detail', () => {
+    const t = setup([])
+    const sec = { id: 's', prompt: '', say: 'a', points: [], detail: '' }
+    expect(t.deck.correct(sec, '**Corr', false)).toBe('')
+    expect(t.deck.correct(sec, '**Correction (say):** b', false)).toBe('')
+    expect(sec.say).toBe('a')
+    expect(t.deck.correct(sec, '**Correction (say):** b\nrest', false)).toBe('rest')
+    expect(sec.say).toBe('b')
+    expect(t.deck.correct(sec, '**Bold** start of ordinary detail', false)).toBe(
+      '**Bold** start of ordinary detail'
+    )
+  })
+})

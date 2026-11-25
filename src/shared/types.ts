@@ -24,12 +24,15 @@ export interface CardSection {
   detail: string // optional markdown: code, numbers, longer explanation
   deepening?: boolean // the deep model is writing `detail` right now
   coding?: boolean // a coding problem: the card holds while the user types the solution
+  sayWas?: string // the say line before the deep pass corrected it
+  note?: string // a correction from the deep pass that names no line of the card
 }
 
 export interface CardPoint {
   id: string
   text: string
   covered: boolean // the user has already said this
+  was?: string // the text before the deep pass corrected it
 }
 
 /** What the overlay shows. A card covers one topic; follow-ups add sections to the same card. */
@@ -146,6 +149,7 @@ export type HotkeyId =
   | 'prevCard'
   | 'nextCard'
   | 'pin'
+  | 'copy' // copy the next block of the active card's detail to the clipboard
   | 'toggleOverlay' // show/hide overlay
   | 'toggleMode' // app window <-> overlay only
   | 'toggleListening' // pause/resume
@@ -205,6 +209,7 @@ export interface Api {
   'window:setMode': (mode: WindowMode) => void
   'window:toggleOverlay': () => void
   'window:getMode': () => WindowMode
+  'ui:event': (name: string, detail?: string) => void // what the user did in a window, for the log
   'overlay:setBounds': (bounds: Bounds) => void // resize from the overlay's own edge handles
 }
 

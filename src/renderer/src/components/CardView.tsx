@@ -4,6 +4,7 @@ import { Markdown } from '@openai/apps-sdk-ui/components/Markdown'
 import { ShimmerText } from '@openai/apps-sdk-ui/components/ShimmerText'
 import type { Card, CardSection } from '../../../shared/types'
 import { hasCode } from '../../../shared/hold'
+import { call } from '../store'
 
 const KIND: Record<Card['source'], string> = {
   auto: 'They asked',
@@ -56,7 +57,10 @@ export function CardView({
         const toggle =
           compact && i === 1 ? (
             <button
-              onClick={() => setShowOlder(!showOlder)}
+              onClick={() => {
+                call('ui:event', 'earlier sections', showOlder ? 'closed' : 'opened')
+                setShowOlder(!showOlder)
+              }}
               aria-expanded={showOlder}
               className="no-drag mt-3 flex w-full items-center gap-1.5 border-t border-subtle pt-2.5 text-left font-medium text-tertiary hover:text-secondary"
               style={{ fontSize: px(12, scale) }}
@@ -151,7 +155,7 @@ function SectionBody({
   streaming: boolean
   onCollapse?: () => void
 }): ReactNode {
-  const { prompt, say, points, detail, deepening } = section
+  const { prompt, say, points, detail, deepening, sayWas, note } = section
   // Where the soft caret goes: after whatever is currently growing.
   const caretAt =
     deepening && detail
@@ -186,7 +190,13 @@ function SectionBody({
         style={{ fontSize: px(17, scale), lineHeight: 1.35, letterSpacing: '-0.005em' }}
       >
         {say}
+        {sayWas && <Corrected scale={scale} />}
       </p>
+      {note && (
+        <p className="mt-1.5 font-medium text-warning" style={{ fontSize: px(13, scale) }}>
+          Correction: {note}
+        </p>
+      )}
       {points.length > 0 && (
         <ul className="mt-2 space-y-1 leading-[1.4]">
           {points.map((p, i) => (
@@ -204,6 +214,7 @@ function SectionBody({
               )}
               <span className={caretAt === 'points' && i === points.length - 1 ? 'caret' : ''}>
                 {p.text}
+                {p.was && <Corrected scale={scale} />}
               </span>
             </li>
           ))}
@@ -216,6 +227,18 @@ function SectionBody({
       )}
       {detail && <Detail markdown={detail} streaming={caretAt === 'detail'} scale={scale} />}
     </div>
+  )
+}
+
+/** Marks a line the deep pass replaced: the user may already have said the first version. */
+function Corrected({ scale }: { scale: number }): ReactNode {
+  return (
+    <span
+      className="ml-1.5 align-middle font-semibold tracking-wide whitespace-nowrap text-warning uppercase"
+      style={{ fontSize: px(9.5, scale) }}
+    >
+      corrected
+    </span>
   )
 }
 

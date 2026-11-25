@@ -9,7 +9,7 @@ import {
   writeFileSync
 } from 'fs'
 import { join } from 'path'
-import type { Recap, Session, SessionMeta } from '../shared/types'
+import type { CardSection, Recap, Session, SessionMeta } from '../shared/types'
 import { generateText, type Llm } from './llm'
 import { transcriptText } from './director/prompt'
 
@@ -56,7 +56,18 @@ export class SessionStore {
 }
 
 export async function generateRecap(ai: Llm, model: string, s: Session): Promise<Recap> {
-  const cards = s.cards.flatMap((c) => c.sections.map((x) => `- ${x.prompt}: ${x.say}`)).join('\n')
+  // a line the deep pass corrected: the user may have said the first version aloud before the fix appeared
+  const fixes = (x: CardSection): string =>
+    [
+      ...(x.sayWas ? [`"${x.sayWas}" → "${x.say}"`] : []),
+      ...x.points.filter((p) => p.was).map((p) => `"${p.was}" → "${p.text}"`),
+      ...(x.note ? [x.note] : [])
+    ]
+      .map((f) => `\n  corrected during the call: ${f}`)
+      .join('')
+  const cards = s.cards
+    .flatMap((c) => c.sections.map((x) => `- ${x.prompt}: ${x.say}${fixes(x)}`))
+    .join('\n')
   const text = await generateText(ai, {
     model,
     json: true,
@@ -78,7 +89,8 @@ ${cards || '(none)'}
 Return JSON: {"summary": markdown (5-10 bullet points: what was discussed, decisions, numbers, impressions),
 "actionItems": [short imperative follow-ups for the user, with owners/dates if mentioned],
 "questions": [{"asked": question they asked the user, "howItWent": one honest line on the user's answer and what to improve}]}.
-Use only what is in the transcript; do not invent.`
+Use only what is in the transcript; do not invent. Where a card line was corrected during the call and the user said
+the first version, say so in howItWent with the correct claim.`
       }
     ]
   })

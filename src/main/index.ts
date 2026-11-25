@@ -7,7 +7,7 @@ import type { HotkeyId, Settings } from '../shared/types'
 import { Engine } from './engine'
 import { loadEnvLocal, readEnvFile } from './env'
 import { registerHotkeys } from './hotkeys'
-import { recap, registerIpc, screenCue, type AppCtx } from './ipc'
+import { copyNext, recap, registerIpc, screenCue, type AppCtx } from './ipc'
 import { errorMessage, makeLlm, type Llm } from './llm'
 import { fileLogger } from './logfile'
 import { SessionStore } from './sessions'
@@ -83,7 +83,11 @@ function main(): void {
     })
     wc.on('render-process-gone', (_ev, d) => log(`window process gone: ${d.reason}`))
   })
-  const windows = new Windows(settings, () => windows.broadcast('settings', settings.value))
+  const windows = new Windows(settings, () => {
+    log(`action overlay moved or resized ${JSON.stringify(settings.value.overlay.bounds)}`)
+    windows.broadcast('settings', settings.value)
+  })
+  let onScreen = '' // which card is active and which is queued, as last logged
   const fakeDir = process.env.SIDEKICK_FAKE_AUDIO
   if (fakeDir) log(`fake audio from ${fakeDir}`)
 
@@ -94,7 +98,16 @@ function main(): void {
       ? join(app.getAppPath(), 'resources/bin/audiocap')
       : join(process.resourcesPath, 'bin/audiocap'),
     fakeDir,
-    emitLive: (s) => windows.broadcast('live', s),
+    emitLive: (s) => {
+      // when each card actually reached the user, which the cue lines alone do not say
+      const label = (id: string | null): string => {
+        const c = s.cards.find((x) => x.id === id)
+        return c ? `"${c.sections.at(-1)?.prompt || c.source}"` : 'none'
+      }
+      const now = `card on screen: ${label(s.activeCardId)}, queued: ${label(s.queuedCardId)}${s.pinned ? ', pinned' : ''}`
+      if (now !== onScreen && s.session !== 'idle') log((onScreen = now))
+      windows.broadcast('live', s)
+    },
     emitLevels: (l) => windows.broadcast('levels', l),
     toast,
     log,
@@ -105,7 +118,9 @@ function main(): void {
       const lat =
         r.firstLineAt && r.speechEndAt
           ? ` ${r.firstLineAt - r.speechEndAt} ms after speech end`
-          : ''
+          : r.firstLineAt
+            ? ` first text after ${r.firstLineAt - r.startedAt} ms, done after ${(r.endedAt ?? r.firstLineAt) - r.startedAt} ms`
+            : ''
       log(
         `cue ${r.kind} → ${r.outcome}${r.reason ? ` [${r.reason}]` : ''}${lat}${r.say ? `: ${r.say}` : ''}${r.error ? ` (${r.error})` : ''}`
       )
@@ -131,12 +146,16 @@ function main(): void {
     prevCard: () => (engine.deck.step(-1), engine.changed()),
     nextCard: () => (engine.deck.step(1), engine.changed()),
     pin: () => (engine.deck.pin(!engine.state.pinned), engine.changed()),
+    copy: () => copyNext(ctx),
     toggleOverlay: () => windows.toggleOverlay(),
     toggleMode: () => windows.setMode(windows.mode === 'app' ? 'overlay' : 'app', isLive()),
     toggleListening: () => isLive() && engine.pause(engine.state.session === 'live')
   }
   const applyHotkeys = (): void => {
-    const failed = registerHotkeys(settings.value.hotkeys, actions)
+    const logged = Object.fromEntries(
+      Object.entries(actions).map(([id, run]) => [id, () => (log(`action hotkey ${id}`), run())])
+    ) as typeof actions
+    const failed = registerHotkeys(settings.value.hotkeys, logged)
     if (failed.length)
       toast('error', `Hotkeys not registered (in use by another app?): ${failed.join(', ')}`)
   }
@@ -149,6 +168,7 @@ function main(): void {
     llm: getLlm,
     filesDir: join(userData, 'files'),
     toast,
+    log,
     settingsChanged: (prev: Settings) => {
       const next = settings.value
       if (JSON.stringify(prev.vertex) !== JSON.stringify(next.vertex)) llm = null

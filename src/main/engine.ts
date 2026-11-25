@@ -81,6 +81,7 @@ export class Engine {
   private ch: Record<Speaker, Channel>
   private pending = new Map<string, { speaker: Speaker; seg: Segment }>() // segments awaiting transcripts
   private lastYouEndAt = 0
+  private youStartAt = 0
   private testing = false
   private audioOn = false
   private noAecFallback = false
@@ -124,6 +125,7 @@ export class Engine {
     this.ch.you.queue = []
     this.ch.them.queue = []
     this.lastYouEndAt = 0
+    this.youStartAt = 0
     this.brief = brief
     const { parts, skipped } = briefParts(brief.files)
     if (skipped.length)
@@ -227,7 +229,8 @@ export class Engine {
     return {
       now: Date.now(),
       youSpeaking: this.state.partial.you,
-      lastYouSpeechAt: this.lastYouEndAt
+      lastYouSpeechAt: this.lastYouEndAt,
+      youSpeechStartedAt: this.youStartAt
     }
   }
 
@@ -456,6 +459,7 @@ export class Engine {
   private onSpeechStart(speaker: Speaker): void {
     if (this.state.session !== 'live') return
     this.setPartial(speaker, true)
+    if (speaker === 'you') this.youStartAt = Date.now()
     if (speaker === 'them') this.director.onThemStart()
   }
 

@@ -69,12 +69,32 @@ describe('Segmenter', () => {
     expect(drops).toBe(1) // it had fired onStart (>=100 ms) so it reports the drop
   })
 
-  it('splits a monologue at 15 s', () => {
-    // speech-like: 900 ms bursts with 100 ms dips (shorter than the 550 ms hang)
-    const talk = Array.from({ length: 34 }, (_, i) => (i % 2 ? silence(100, 20) : tone(900)))
+  it('hard-cuts continuous speech with no dip at 20 s', () => {
+    // speech-like: 900 ms bursts with 100 ms dips (shorter than the 150 ms dip), 25 s in all
+    const talk = Array.from({ length: 50 }, (_, i) => (i % 2 ? silence(100, 20) : tone(900)))
     const { segs } = run([...talk, silence(1000)])
     expect(segs.length).toBe(2)
-    expect(segs[0].endedAt - segs[0].startedAt).toBeLessThanOrEqual(15000)
+    expect(segs[0].endedAt - segs[0].startedAt).toBeGreaterThan(19800)
+    expect(segs[0].endedAt - segs[0].startedAt).toBeLessThanOrEqual(20000)
+  })
+
+  it('past 12 s, cuts at the first 150 ms dip and the next segment starts after it', () => {
+    const { segs } = run([
+      silence(500, 20),
+      tone(13000),
+      silence(200, 20),
+      tone(3000),
+      silence(1000)
+    ])
+    expect(segs).toHaveLength(2)
+    expect(segs[0].endedAt - segs[0].startedAt).toBeGreaterThan(12900)
+    expect(segs[0].endedAt - segs[0].startedAt).toBeLessThan(13100)
+    expect(segs[1].startedAt).toBeGreaterThanOrEqual(segs[0].endedAt + 200)
+  })
+
+  it('a dip before 12 s does not cut', () => {
+    const { segs } = run([tone(8000), silence(200, 20), tone(8000), silence(1000)])
+    expect(segs).toHaveLength(1)
   })
 
   it('adapts to a noise floor', () => {

@@ -24,8 +24,8 @@ export function Overlay(): ReactNode {
   const overlay = useStore((s) => s.settings?.overlay)
   const askAcc = useStore((s) => s.settings?.hotkeys.find((h) => h.id === 'ask')?.accelerator)
   const [asking, setAsking] = useState(false)
-  // errors reach this window as toasts (kept ~8 s by the store); the overlay shows the latest one inline
-  const error = useStore((s) => s.toasts.findLast((t) => t.kind === 'error'))
+  // messages reach this window as toasts (kept ~8 s by the store); the overlay shows the latest one inline
+  const toast = useStore((s) => s.toasts.at(-1))
 
   useEffect(() => {
     document.documentElement.classList.add('overlay')
@@ -57,21 +57,28 @@ export function Overlay(): ReactNode {
       <div className="relative flex h-full flex-col">
         {live ? (
           <>
-            <Header live={live} onAsk={() => setAsking(!asking)} asking={asking} />
+            <Header
+              live={live}
+              onAsk={() => {
+                call('ui:event', 'ask box', asking ? 'closed' : 'opened')
+                setAsking(!asking)
+              }}
+              asking={asking}
+            />
             {live.audio.message && (
               <div className="flex h-6 shrink-0 items-center gap-1.5 border-b border-subtle px-3.5 text-xs text-warning">
                 <TriangleAlert className="size-3.5 shrink-0" />
                 <span className="truncate">{live.audio.message}</span>
               </div>
             )}
-            {error && !live.audio.message?.includes(error.text) && (
+            {toast && !live.audio.message?.includes(toast.text) && (
               <div
-                role="alert"
-                title={error.text}
-                className="flex h-6 shrink-0 items-center gap-1.5 border-b border-subtle px-3.5 text-xs text-danger"
+                role={toast.kind === 'error' ? 'alert' : 'status'}
+                title={toast.text}
+                className={`flex h-6 shrink-0 items-center gap-1.5 border-b border-subtle px-3.5 text-xs ${toast.kind === 'error' ? 'text-danger' : 'text-secondary'}`}
               >
-                <CircleAlert className="size-3.5 shrink-0" />
-                <span className="selectable truncate">{error.text}</span>
+                {toast.kind === 'error' && <CircleAlert className="size-3.5 shrink-0" />}
+                <span className="selectable truncate">{toast.text}</span>
               </div>
             )}
             <Body live={live} scale={scale} />
@@ -250,9 +257,27 @@ function Body({ live, scale }: { live: LiveState; scale: number }): ReactNode {
   useEffect(() => {
     ref.current?.scrollTo({ top: 0 })
   }, [active?.id, newestId])
+  // Log how far the user scrolled once they stop: it shows whether the detail under a card was read.
+  const scrolled = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const onScroll = (): void => {
+    clearTimeout(scrolled.current)
+    scrolled.current = setTimeout(() => {
+      const el = ref.current
+      if (el)
+        call(
+          'ui:event',
+          'overlay scroll',
+          `${Math.round(el.scrollTop)} of ${el.scrollHeight - el.clientHeight}`
+        )
+    }, 600)
+  }
 
   return (
-    <div ref={ref} className="no-drag min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-3">
+    <div
+      ref={ref}
+      onScroll={onScroll}
+      className="no-drag min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-3"
+    >
       {active ? (
         <CardView key={active.id} card={active} scale={scale} compact />
       ) : !on ? (

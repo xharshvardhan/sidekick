@@ -62,6 +62,7 @@ export interface DirectorDeps {
 const BACKCHANNEL_MS = 700
 const YOU_RECENT_MS = 3000
 const THINKING_DELAY_MS = 400
+const PREVIOUS_MS = 5 * 60_000
 
 interface Gen {
   ctrl: AbortController
@@ -71,7 +72,7 @@ interface Gen {
 export class Director {
   private gens = new Map<TriggerKind, Gen>()
   /** running deep passes, by section id */
-  private deeps = new Map<string, { ctrl: AbortController; cardId: string }>()
+  private deeps = new Map<string, { ctrl: AbortController; cardId: string; screen: boolean }>()
   private brief: Brief | null = null
   private briefParts: Part[] = []
 
@@ -124,8 +125,9 @@ export class Director {
     return this.run('ask', q ? TASKS.ask(q) : TASKS.help)
   }
 
-  screen(jpegBase64: string): Promise<void> {
-    return this.run('screen', TASKS.screen, { image: jpegBase64 })
+  /** `pressedAt`: when the user asked, before the capture, so the logged latency includes it. */
+  screen(jpegBase64: string, pressedAt?: number): Promise<void> {
+    return this.run('screen', TASKS.screen, { image: jpegBase64, startedAt: pressedAt })
   }
 
   cancelAll(): void {
@@ -157,13 +159,17 @@ export class Director {
   private async run(
     kind: Exclude<TriggerKind, 'deeper'>,
     task: string,
-    extra: { speechEndAt?: number; image?: string } = {}
+    extra: { speechEndAt?: number; image?: string; startedAt?: number } = {}
   ): Promise<void> {
     if (!this.brief) return
     const manual = kind !== 'auto'
     const gen = this.start(kind)
     const now = this.now()
-    const rec: RunRecord = { kind, startedAt: now, speechEndAt: extra.speechEndAt }
+    const rec: RunRecord = {
+      kind,
+      startedAt: extra.startedAt ?? now,
+      speechEndAt: extra.speechEndAt
+    }
     const askedAt = extra.speechEndAt ?? now
     const source: CardSource = kind
     const { deck } = this.d
@@ -181,15 +187,20 @@ export class Director {
       if (!target) {
         const a = this.d.activity()
         const ext = p.kind === 'extend' ? deck.addSection(askedAt, shownCard?.id) : null
-        target = ext ?? deck.addCard(source, askedAt, a, manual)
+        // A follow-up that does not fit on its card belongs to the answer in progress: show it now, not queued.
+        const overflow = p.kind === 'extend' && !ext && !this.d.state.pinned
+        if (overflow) rec.reason = 'follow-up on a full card'
+        target = ext ?? deck.addCard(source, askedAt, a, manual || overflow)
         made = ext ? 'extend' : 'new'
         rec.cardId = target.card.id
         gen.shown = true
         rec.firstLineAt = this.now()
-        // a manual trigger takes over: deep passes on other cards are no longer wanted
+        // a manual trigger takes over: deep passes on other cards are no longer wanted (a second screen capture
+        // keeps the first one's detail coming: the user is still on the same task)
         if (manual)
           for (const d of this.deeps.values())
-            if (d.cardId !== target.card.id) d.ctrl.abort('replaced by a manual trigger')
+            if (d.cardId !== target.card.id && !(kind === 'screen' && d.screen))
+              d.ctrl.abort('replaced by a manual trigger')
       }
       deck.fill(target.section, p)
       target.card.updatedAt = this.now()
@@ -267,7 +278,7 @@ export class Director {
   private async deepen(card: Card, section: CardSection, image?: string): Promise<void> {
     if (!this.brief) return
     const ctrl = new AbortController()
-    this.deeps.set(section.id, { ctrl, cardId: card.id })
+    this.deeps.set(section.id, { ctrl, cardId: card.id, screen: card.source === 'screen' })
     const rec: RunRecord = { kind: 'deeper', startedAt: this.now(), cardId: card.id }
     const s = this.d.settings()
     const before = section.detail
@@ -276,7 +287,12 @@ export class Director {
     this.d.changed()
     try {
       const ctx = this.d.context()
-      await streamText(
+      // the card before this one, if recent: the detail must agree with what the user was just shown and said
+      const cards = this.d.state.cards
+      const prior = cards[cards.indexOf(card) - 1]
+      const previous =
+        prior && this.now() - (prior.updatedAt ?? prior.createdAt) < PREVIOUS_MS ? prior : undefined
+      const final = await streamText(
         this.d.llm(),
         {
           model: s.models.deep,
@@ -286,6 +302,8 @@ export class Director {
             summary: ctx.summary,
             tail: ctx.tail,
             audio: [],
+            previous,
+            fullDetail: true,
             card,
             task: image ? screenTask(section) : deeperTask(section),
             image // a screen card: the deep model needs the problem itself, not just the card
@@ -296,13 +314,16 @@ export class Director {
         (full) => {
           if (ctrl.signal.aborted) return
           rec.firstLineAt ??= this.now()
-          section.detail = full.trim()
+          section.detail = this.d.deck.correct(section, full.trim(), false)
           card.updatedAt = this.now()
           this.d.changed()
         }
       )
       if (ctrl.signal.aborted) throw new DOMException('aborted', 'AbortError')
+      section.detail = this.d.deck.correct(section, final.trim(), true)
       rec.outcome = 'deeper'
+      const fixed = section.points.filter((p) => p.was).length + (section.sayWas ? 1 : 0)
+      if (fixed || section.note) rec.reason = `corrected ${fixed} line${fixed === 1 ? '' : 's'}`
       rec.raw = section.detail
     } catch (e) {
       section.detail = before

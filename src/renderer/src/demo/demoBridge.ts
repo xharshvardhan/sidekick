@@ -226,7 +226,8 @@ export function createDemoBridge(variant: string, scene: string): Bridge {
     },
     'window:toggleOverlay': () => emit('toast', { kind: 'info', text: 'Overlay toggled (demo)' }),
     'window:getMode': () => mode,
-    'overlay:setBounds': () => {}
+    'overlay:setBounds': () => {},
+    'ui:event': () => {}
   }
 
   return {

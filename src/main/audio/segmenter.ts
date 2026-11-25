@@ -18,7 +18,8 @@ export interface SegmenterOptions {
   suppress?: (frameRms: number) => boolean
   preRollMs?: number
   hangMs?: number
-  maxMs?: number
+  maxMs?: number // hard cap for speech with no dip at all
+  softMs?: number // past this length, close at the first short dip instead of waiting for hangMs
   minSpeechMs?: number
   startSpeechMs?: number // unbroken speech needed before `onStart` fires (typing and clicks never last that long)
   minRms?: number
@@ -27,6 +28,7 @@ export interface SegmenterOptions {
 const FRAME = 320 // 20 ms
 const FRAME_MS = 20
 const TAIL_MS = 200
+const DIP_MS = 150 // below-threshold audio that counts as a dip once past softMs
 const FLOOR_FRAMES = 150 // 3 s
 const MAX_FLOOR = 600 // above this it is speech, not a noise bed (also covers streams that start mid-speech)
 
@@ -51,7 +53,8 @@ export class Segmenter {
     this.o = {
       preRollMs: opts.preRollMs ?? 300,
       hangMs: opts.hangMs ?? 550,
-      maxMs: opts.maxMs ?? 15000,
+      maxMs: opts.maxMs ?? 20000,
+      softMs: Math.min(opts.softMs ?? 12000, opts.maxMs ?? 20000), // never beyond the hard cap
       minSpeechMs: opts.minSpeechMs ?? 250,
       startSpeechMs: opts.startSpeechMs ?? 100,
       minRms: opts.minRms ?? 120
@@ -148,7 +151,8 @@ export class Segmenter {
     }
     const silentMs = ((this.sample - this.lastSpeechSample) * 1000) / SAMPLE_RATE
     const lenMs = ((this.sample - this.segStartSample) * 1000) / SAMPLE_RATE
-    if (silentMs >= this.o.hangMs || lenMs >= this.o.maxMs) this.close()
+    const dip = lenMs >= this.o.softMs && silentMs >= DIP_MS
+    if (dip || silentMs >= this.o.hangMs || lenMs >= this.o.maxMs) this.close()
   }
 
   private close(): void {

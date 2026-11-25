@@ -10,6 +10,7 @@ export const DEFAULT_HOTKEYS: Hotkey[] = [
   { id: 'prevCard', label: 'Previous card', accelerator: 'Alt+Shift+[' },
   { id: 'nextCard', label: 'Next card', accelerator: 'Alt+Shift+]' },
   { id: 'pin', label: 'Pin card', accelerator: 'Alt+Shift+P' },
+  { id: 'copy', label: 'Copy the next block of the card', accelerator: 'Alt+Shift+C' },
   { id: 'toggleOverlay', label: 'Show or hide overlay', accelerator: 'Alt+Shift+H' },
   { id: 'toggleMode', label: 'Switch app / overlay mode', accelerator: 'Alt+Shift+M' },
   { id: 'toggleListening', label: 'Pause or resume listening', accelerator: 'Alt+Shift+L' }

@@ -18,6 +18,7 @@ export interface UserActivity {
   now: number
   youSpeaking: boolean
   lastYouSpeechAt: number // epoch ms when the user last stopped speaking (0 = never)
+  youSpeechStartedAt?: number // epoch ms when the user's current or latest speech began
 }
 
 export class Deck {
@@ -41,13 +42,13 @@ export class Deck {
 
   /** Should a brand-new card wait in the queue instead of replacing what the user is reading?
    *  A holding card (code the user is typing from) keeps it queued until they step to it. */
-  shouldQueue(a: UserActivity): boolean {
+  shouldQueue(a: UserActivity, answering = false): boolean {
     const active = this.active
     return (
       this.s.pinned ||
       cardHolds(active, a.now) ||
-      a.youSpeaking ||
-      (a.lastYouSpeechAt > 0 && a.now - a.lastYouSpeechAt < QUIET_MS) ||
+      (!answering &&
+        (a.youSpeaking || (a.lastYouSpeechAt > 0 && a.now - a.lastYouSpeechAt < QUIET_MS))) ||
       (!!active && a.now - active.createdAt < FRESH_MS)
     )
   }
@@ -68,7 +69,9 @@ export class Deck {
       sections: [section]
     }
     this.s.cards.push(card)
-    if (!forceActive && this.active && this.shouldQueue(a)) this.s.queuedCardId = card.id
+    // The user began talking after this question ended: they are answering it, not reading the old card.
+    const answering = (a.youSpeechStartedAt ?? 0) > askedAt
+    if (!forceActive && this.active && this.shouldQueue(a, answering)) this.s.queuedCardId = card.id
     else this.activate(card.id)
     return { card, section }
   }
@@ -98,6 +101,41 @@ export class Deck {
       const old = section.points[i]
       return { id: old?.id ?? newId('p'), text, covered: old?.covered ?? false }
     })
+  }
+
+  /** The deep pass may open with "**Correction (point 2):** …" lines. The user reads the points word for word, so a
+   *  fix replaces the wrong line in place (a fix that names no line becomes the section's note). Returns the detail
+   *  without those lines. Called on every chunk with the full text so far; `done` = the stream has ended. */
+  correct(section: CardSection, text: string, done: boolean): string {
+    const lines = text.split('\n')
+    const notes: string[] = []
+    let i = 0
+    for (; i < lines.length; i++) {
+      const line = lines[i].trim()
+      if (!line) continue
+      const head = '**Correction'
+      if (!(line.length < head.length ? head.startsWith(line) : line.startsWith(head))) break
+      if (i === lines.length - 1 && !done) return '' // the line is still streaming
+      const m = /^\*\*Correction(?:\s*\((say|point\s*(\d+))\))?:?\*\*:?\s*(.+)$/i.exec(line)
+      if (!m) break
+      const fix = m[3].trim()
+      const point = m[2] ? section.points[Number(m[2]) - 1] : undefined
+      if (point) {
+        const text = fix.replace(/\.$/, '')
+        if (point.text !== text) {
+          point.was ??= point.text
+          point.text = text
+          point.covered = false
+        }
+      } else if (m[1]?.toLowerCase() === 'say') {
+        if (section.say !== fix) {
+          section.sayWas ??= section.say
+          section.say = fix
+        }
+      } else notes.push(fix)
+    }
+    section.note = notes.join(' ') || undefined
+    return lines.slice(i).join('\n').trim()
   }
 
   addError(source: CardSource, message: string, now: number): Card {
