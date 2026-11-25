@@ -11,7 +11,7 @@ export function Home(): ReactNode {
   const live = useStore((s) => s.live)
   const inSession = live?.session === 'live' || live?.session === 'paused'
   return (
-    <Page title="Home">
+    <Page title={inSession ? 'Session in progress' : 'Start a session'}>
       {inSession ? (
         <Panel className="flex items-center gap-3 px-5 py-4">
           <LiveDot paused={live.session === 'paused'} />
@@ -30,8 +30,8 @@ export function Home(): ReactNode {
       ) : (
         <StartForm />
       )}
-      <div className="mt-8 mb-3 flex items-baseline justify-between">
-        <h2 className="heading-xs">Recent sessions</h2>
+      <div className="mt-10 mb-3 flex items-baseline justify-between">
+        <h2 className="heading-sm">Recent sessions</h2>
         <button className="text-sm text-secondary hover:text-default" onClick={() => go('history')}>
           See all
         </button>

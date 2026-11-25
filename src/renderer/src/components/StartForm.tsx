@@ -119,6 +119,8 @@ export function StartForm(): ReactNode {
     .join(' · ')
     .slice(0, 80)
   const title = typedTitle ?? autoTitle
+  const emptyBrief =
+    !title.trim() && !notes.trim() && !files.length && !Object.values(values).some((x) => x.trim())
 
   async function pick(): Promise<void> {
     try {
@@ -205,20 +207,22 @@ export function StartForm(): ReactNode {
 
   return (
     <Panel className="p-5">
-      <div className="flex items-center justify-between gap-4">
-        <h2 className="heading-xs">Start a session</h2>
+      <div className="flex min-h-7 items-center justify-between gap-4">
+        <p className="text-sm text-secondary">
+          {profile.trim() && (
+            <>
+              Using your profile · {wordCount(profile)} words ·{' '}
+              <button className="underline hover:text-default" onClick={() => go('settings')}>
+                Edit
+              </button>
+            </>
+          )}
+        </p>
         <ReuseMenu onPick={reuse} />
       </div>
 
-      {profile.trim() ? (
-        <p className="mt-1 text-xs text-tertiary">
-          Using your profile · {wordCount(profile)} words ·{' '}
-          <button className="underline hover:text-default" onClick={() => go('settings')}>
-            Edit
-          </button>
-        </p>
-      ) : (
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-surface-secondary px-3.5 py-2.5">
+      {!profile.trim() && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-surface-secondary px-3.5 py-2.5">
           <UserRound className="size-4 shrink-0 text-secondary" />
           <p className="min-w-0 flex-1 basis-64 text-sm text-secondary">
             Sidekick knows nothing about you yet, so answers about your background will have blanks.
@@ -372,6 +376,11 @@ export function StartForm(): ReactNode {
             </span>
           ))}
           <div className="ml-auto flex items-center gap-3">
+            {emptyBrief && (
+              <span className="text-xs text-warning">
+                Nothing about this call yet: answers will be generic
+              </span>
+            )}
             <Button color="success" onClick={start} loading={busy}>
               <Play className="fill-current" />
               Start session

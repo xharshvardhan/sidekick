@@ -164,11 +164,9 @@ export function Page({
 }): ReactNode {
   return (
     <div className="flex h-full min-w-0 flex-col">
-      <header className="drag h-[52px] shrink-0">
-        <div
-          className={`mx-auto flex h-full items-center gap-3 px-8 ${wide ? 'max-w-5xl' : 'max-w-3xl'}`}
-        >
-          <h1 className="min-w-0 flex-1 heading-sm">
+      <header className="drag shrink-0 pt-10 pb-4">
+        <div className={`mx-auto flex items-center gap-3 px-8 ${wide ? 'max-w-5xl' : 'max-w-3xl'}`}>
+          <h1 className="min-w-0 flex-1 heading-lg">
             {/* no-drag only over the text, so the native tooltip for a truncated title can show */}
             <span className="no-drag inline-block max-w-full truncate align-bottom">{title}</span>
           </h1>

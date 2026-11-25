@@ -87,11 +87,34 @@ export function Settings(): ReactNode {
   )
 }
 
+/** The groups below, in order: the jump links at the top of the page. A group's title is its element id. */
+const SECTIONS = [
+  'About me',
+  'Answers',
+  'Overlay',
+  'Audio',
+  'Hotkeys',
+  'Models',
+  'Vertex AI',
+  'Setup checks'
+]
+
 function SettingsForm({ s }: { s: SettingsT }): ReactNode {
   const save = useStore((st) => st.saveSettings)
   const set = (patch: DeepPartial<SettingsT>): void => void save(patch)
   return (
-    <div className="grid grid-cols-1 gap-6">
+    <div className="grid grid-cols-1 gap-10">
+      <nav className="sticky top-0 z-10 -mx-2.5 -mb-5 flex flex-wrap gap-1 border-b border-subtle bg-surface py-2">
+        {SECTIONS.map((t) => (
+          <button
+            key={t}
+            onClick={() => document.getElementById(t)?.scrollIntoView({ behavior: 'smooth' })}
+            className="rounded-md px-2.5 py-1 text-sm text-secondary hover:bg-[var(--alpha-04)] hover:text-default"
+          >
+            {t}
+          </button>
+        ))}
+      </nav>
       <Group
         title="About me"
         bare
@@ -262,8 +285,8 @@ function Group({
   children: ReactNode
 }): ReactNode {
   return (
-    <section>
-      <h2 className="heading-xs">{title}</h2>
+    <section id={title} className="scroll-mt-14">
+      <h2 className="heading-sm">{title}</h2>
       {hint && <p className="mt-1 text-sm text-secondary">{hint}</p>}
       {bare ? (
         <div className="mt-3">{children}</div>
